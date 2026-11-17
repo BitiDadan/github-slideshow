@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<MappingRules>
+  <!-- 通用版不包含业务修订。需要例外时，自行添加 Override 或 Type02Override。 -->
+  <!-- Override 属性：enabled=true、sourceFeeNo、sourceOverseas，及可选的 feeNo、overseas、feeName、overseasName、customerType、creditDebitType。 -->
+  <!-- Type02Override 属性：feeNo、overseas，可选 overseasName。 -->
+</MappingRules>
