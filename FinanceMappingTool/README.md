@@ -1,10 +1,10 @@
-# 财务科目对照导入工具 v1.0
+# 财务科目对照导入工具 v1.1
 
 C# / WinForms / .NET Framework 4.8。读取 Excel 科目对照表，预览并生成 SQL Server 2014 兼容的 INSERT 脚本。离线运行，不连接数据库，不依赖安装 Office。
 
 ## 下载运行
 
-打开本目录 `Downloads/FinanceMappingTool-v1.0.zip`，点击 GitHub 的 **Download raw file** 下载完整包。完整解压后进入 `Program`，双击 `FinanceMappingTool.exe`。EXE、DLL、配置文件必须放在同一目录。
+打开本目录 `Downloads/FinanceMappingTool-v1.1.zip`，点击 GitHub 的 **Download raw file** 下载完整包。完整解压后进入 `Program`，双击 `FinanceMappingTool.exe`。EXE、DLL、配置文件必须放在同一目录。
 
 需要 Windows 和 .NET Framework 4.8。无需安装 Python、.NET 8 或 VS 即可运行。
 
@@ -40,6 +40,24 @@ KDVoucher 使用Excel对应关系；KDVoucher02 默认海外编码/名称直接�
 
 示例为虚构编码。Override 在去重前应用；Type02Override 用于02类型已存在的国内编码，不会自动新增科目。
 
+## v1.1 锁等待与性能修正
+
+旧版每条映射会三次查询目标表并持有 UPDLOCK/HOLDLOCK；没有业务索引时可能反复扫描并持有更大范围的锁。单条映射也可能因其他未提交事务而阻塞，这需要实际会话信息确认，不能仅从耗时确定原因。
+
+新版先将输入放入表变量，再用一条目标表读取语句缓存相关映射，批量校验和插入。仍保留事务与一致性锁，遇到其他会话持锁时仍可能等待；默认每次锁等待最多10秒，报1222后回滚并提示诊断。它不是整个脚本的总执行时限，回滚也可能需要时间。执行计划仍由数据库优化器决定，不保证物理上只扫描一次。
+
+新增：
+- 立即显示导入SPID及处理阶段，便于在另一窗口查看阻塞。
+- 检查当前窗口是否已有未结束事务，有则拒绝开始；不会自动回滚用户原有事务。
+- 成功和可捕获错误均恢复原LOCK_TIMEOUT、XACT_ABORT设置。
+- 根据实际暂存输入动态统计条数，手工裁剪数据后不会仍显示原始总数。
+- 支持超过1000条的VALUES分批暂存。
+- `Diagnostics/检查导入阻塞.sql` 为只读诊断，不修改表、不KILL会话。
+
+客户端点击停止不保证进入 SQL CATCH。停止后应在原窗口检查 `SELECT @@SPID,@@TRANCOUNT,XACT_STATE();`。若有事务，先确认属于哪项操作，再决定提交或回滚。不要用NOLOCK绕过导入一致性检查。
+
+若LCK_M_*等待、blocking_session_id>0，说明在等待其他会话。先处理阻塞会话，不要自动结束其他人的事务。若目标表数据较大，可由DBA评估 (OverseasType,FeeNo,IsDeleted) 索引；本版不自动创建索引或修改表结构。
+
 ## 部署行为
 
 - 按 OverseasType + FeeNo + IsDeleted=0 查找有效记录。
@@ -51,6 +69,6 @@ KDVoucher 使用Excel对应关系；KDVoucher02 默认海外编码/名称直接�
 - 编码建议Excel存为文本；已有前导零显示格式会保留，已丢失的前导零/精度无法恢复。
 - 切换映射类型或重新读取会重置预览中的手工修改。
 
-已完成Release编译及核心样例/SQL 2014解析检查。未在Windows实际启动界面，未连接SQL Server执行。首次运行需本地验收。
+已完成Release编译，以及1条、305条、1001条和原始Excel生成脚本的SQL Server 2014语法解析检查。未在Windows实际启动界面，未连接用户SQL Server；隔离测试服务器因验证环境磁盘限制未能启动，因此未完成数据库运行及阻塞超时实测。首次运行需本地验收。
 
 第三方依赖及许可证见 `Source/ThirdPartyNotices`，通过NuGet管理。程序包约2.7MB，不含.NET Framework运行时。

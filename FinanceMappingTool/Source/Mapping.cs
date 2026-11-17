@@ -180,36 +180,62 @@ namespace FinanceMappingTool
             if (string.IsNullOrWhiteSpace(database) || database.Length > 128 || database.Any(char.IsControl))
                 throw new InvalidDataException("请填写有效的目标数据库名称（最多128字符）。");
             var s = new StringBuilder();
-            s.AppendLine("-- 财务科目映射导入；仅 INSERT，不包含后期 UPDATE。");
-            s.AppendLine("-- 已存在且内容相同的有效记录跳过；同类型同国内编码内容不同时终止并回滚。");
-            s.AppendLine("-- 执行前请确认目标库、预览映射并完成常规备份。记录数：" + rows.Count);
-            s.AppendLine("USE [" + database.Replace("]", "]]") + "];\r\nGO\r\nSET NOCOUNT ON;\r\nSET XACT_ABORT ON;");
-            s.AppendLine("BEGIN TRY\r\n    BEGIN TRANSACTION;");
-            s.AppendLine("    DECLARE @inserted int = 0;");
-            foreach (var r in rows)
+            const string columns = "[FeeNo],[FeeName],[FeeNoOverseas],[FeeNameOverseas],[OverseasType],[Memo],[CustomerType],[CreditDebitType]";
+            const string definition = "[FeeNo] varchar(20),[FeeName] nvarchar(400),[FeeNoOverseas] varchar(20),[FeeNameOverseas] nvarchar(400),[OverseasType] varchar(50),[Memo] nvarchar(400),[CustomerType] tinyint,[CreditDebitType] tinyint";
+            s.AppendLine("-- 财务科目映射导入 v1.1；仅 INSERT，不包含后期 UPDATE。");
+            s.AppendLine("-- 批量读取目标映射一次；相同内容跳过，冲突或重复则回滚。锁等待超时10秒（不是总执行时限）。");
+            s.AppendLine("-- 手动取消后，请在原窗口检查 SELECT @@SPID, @@TRANCOUNT, XACT_STATE(); 注意客户端取消不一定进入 CATCH。");
+            s.AppendLine("USE [" + database.Replace("]", "]]") + "];\r\nGO\r\nSET NOCOUNT ON;");
+            s.AppendLine("IF @@TRANCOUNT <> 0\r\n    THROW 50003, N'当前窗口存在未结束事务。请先确认并提交或回滚原事务，再执行导入。', 1;");
+            s.AppendLine("DECLARE @previousLockTimeout int = @@LOCK_TIMEOUT;");
+            s.AppendLine("DECLARE @previousXactAbort bit = CASE WHEN (@@OPTIONS & 16384) = 16384 THEN 1 ELSE 0 END;");
+            s.AppendLine("BEGIN TRY\r\n    SET LOCK_TIMEOUT 10000;\r\n    SET XACT_ABORT ON;");
+            s.AppendLine("    DECLARE @Import TABLE ([ExcelRow] int," + definition + ", PRIMARY KEY ([OverseasType],[FeeNo]));");
+            // SQL Server limits a direct INSERT VALUES constructor to 1000 rows.
+            for (int offset = 0; offset < rows.Count; offset += 1000)
             {
-                var values = new[] { Q(r.FeeNo, false), Q(r.FeeName), Q(r.FeeNoOverseas, false),
-                    Q(r.FeeNameOverseas), Q(r.OverseasType, false), Q(r.Memo), r.CustomerType,
-                    string.IsNullOrWhiteSpace(r.CreditDebitType) ? "NULL" : byte.Parse(r.CreditDebitType).ToString(CultureInfo.InvariantCulture) };
-                string key = "[OverseasType]=" + values[4] + " AND [FeeNo]=" + values[0] + " AND [IsDeleted]=0";
-                // Byte comparisons detect trailing spaces/case differences and avoid collation-dependent equality.
-                string diff = string.Join(" OR ", new[] {1,2,3,5}.Select(i => {
-                    string col = new[] {"FeeNo","FeeName","FeeNoOverseas","FeeNameOverseas","OverseasType","Memo"}[i];
-                    return "[" + col + "] IS NULL OR CONVERT(varbinary(max),[" + col + "])<>CONVERT(varbinary(max)," + values[i] + ")";
-                }));
-                diff += " OR [CustomerType] IS NULL OR [CustomerType]<>" + values[6];
-                diff += values[7] == "NULL" ? " OR [CreditDebitType] IS NOT NULL" : " OR [CreditDebitType] IS NULL OR [CreditDebitType]<>" + values[7];
-                s.AppendLine("    -- Excel 行 " + r.ExcelRow);
-                s.AppendLine("    IF (SELECT COUNT_BIG(*) FROM [dbo].[VoucherFeeRelation] WITH (UPDLOCK,HOLDLOCK) WHERE " + key + ") > 1");
-                s.AppendLine("        THROW 50001, " + Q("目标库存在重复有效映射：" + r.OverseasType + "/" + r.FeeNo) + ", 1;");
-                s.AppendLine("    IF EXISTS (SELECT 1 FROM [dbo].[VoucherFeeRelation] WITH (UPDLOCK,HOLDLOCK) WHERE " + key + " AND (" + diff + "))");
-                s.AppendLine("        THROW 50002, " + Q("目标库映射内容冲突：" + r.OverseasType + "/" + r.FeeNo + "；请核实后处理。") + ", 1;");
-                s.AppendLine("    IF NOT EXISTS (SELECT 1 FROM [dbo].[VoucherFeeRelation] WITH (UPDLOCK,HOLDLOCK) WHERE " + key + ")\r\n    BEGIN");
-                s.AppendLine("        INSERT INTO [dbo].[VoucherFeeRelation] ([FeeNo],[FeeName],[FeeNoOverseas],[FeeNameOverseas],[OverseasType],[Memo],[CustomerType],[CreditDebitType])");
-                s.AppendLine("        VALUES (" + string.Join(",", values) + ");\r\n        SET @inserted += 1;\r\n    END;");
+                s.AppendLine("    INSERT INTO @Import ([ExcelRow]," + columns + ") VALUES");
+                int end = Math.Min(offset + 1000, rows.Count);
+                for (int i = offset; i < end; i++)
+                {
+                    var r = rows[i];
+                    var values = new[] { r.ExcelRow.ToString(CultureInfo.InvariantCulture), Q(r.FeeNo, false), Q(r.FeeName),
+                        Q(r.FeeNoOverseas, false), Q(r.FeeNameOverseas), Q(r.OverseasType, false), Q(r.Memo), r.CustomerType,
+                        string.IsNullOrWhiteSpace(r.CreditDebitType) ? "NULL" : byte.Parse(r.CreditDebitType).ToString(CultureInfo.InvariantCulture) };
+                    s.AppendLine("        (" + string.Join(",", values) + ")" + (i + 1 == end ? ";" : ","));
+                }
             }
-            s.AppendLine("    COMMIT TRANSACTION;\r\n    SELECT @inserted AS [本次新增条数], " + rows.Count + " - @inserted AS [已存在跳过条数];");
-            s.AppendLine("END TRY\r\nBEGIN CATCH\r\n    IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;\r\n    THROW;\r\nEND CATCH;\r\nGO");
+            s.AppendLine("    DECLARE @expected int = (SELECT COUNT(*) FROM @Import), @inserted int, @sessionId int = @@SPID;");
+            s.AppendLine("    RAISERROR(N'导入会话 SPID=%d，数据%d条；正在查询并锁定目标映射，单次锁等待上限10秒。', 10, 1, @sessionId, @expected) WITH NOWAIT;");
+            s.AppendLine("    DECLARE @Existing TABLE (" + definition + ");");
+            s.AppendLine("    BEGIN TRANSACTION;");
+            s.AppendLine("    INSERT INTO @Existing (" + columns + ")");
+            s.AppendLine("    SELECT " + string.Join(",", columns.Split(',').Select(c => "t." + c)));
+            s.AppendLine("    FROM [dbo].[VoucherFeeRelation] AS t WITH (UPDLOCK,HOLDLOCK)");
+            s.AppendLine("    INNER JOIN @Import AS i ON i.[OverseasType]=t.[OverseasType] AND i.[FeeNo]=t.[FeeNo]");
+            s.AppendLine("    WHERE t.[IsDeleted]=0 OPTION (RECOMPILE);");
+            s.AppendLine("    IF EXISTS (SELECT 1 FROM @Existing GROUP BY [OverseasType],[FeeNo] HAVING COUNT_BIG(*)>1)");
+            s.AppendLine("    BEGIN\r\n        SELECT [OverseasType],[FeeNo],COUNT_BIG(*) AS [重复有效记录数] FROM @Existing GROUP BY [OverseasType],[FeeNo] HAVING COUNT_BIG(*)>1;");
+            s.AppendLine("        THROW 50001, N'目标库存在重复有效映射，详情见结果集。导入已回滚。', 1;\r\n    END;");
+            string diff = string.Join(" OR ", new[] { "FeeName", "FeeNoOverseas", "FeeNameOverseas", "Memo" }.Select(c =>
+                "e.[" + c + "] IS NULL OR CONVERT(varbinary(max),e.[" + c + "])<>CONVERT(varbinary(max),i.[" + c + "])"));
+            diff += " OR e.[CustomerType] IS NULL OR e.[CustomerType]<>i.[CustomerType]";
+            diff += " OR e.[CreditDebitType]<>i.[CreditDebitType] OR (e.[CreditDebitType] IS NULL AND i.[CreditDebitType] IS NOT NULL) OR (e.[CreditDebitType] IS NOT NULL AND i.[CreditDebitType] IS NULL)";
+            string conflict = "FROM @Import AS i INNER JOIN @Existing AS e ON e.[OverseasType]=i.[OverseasType] AND e.[FeeNo]=i.[FeeNo] WHERE " + diff;
+            s.AppendLine("    IF EXISTS (SELECT 1 " + conflict + ")\r\n    BEGIN");
+            s.AppendLine("        SELECT N'映射内容冲突：i为导入内容，e为已有内容' AS [问题],i.*,e.* " + conflict + ";");
+            s.AppendLine("        THROW 50002, N'目标库映射内容冲突，详情见结果集。导入已回滚。', 1;\r\n    END;");
+            s.AppendLine("    RAISERROR(N'目标映射检查完成，正在批量插入。', 10, 1) WITH NOWAIT;");
+            s.AppendLine("    INSERT INTO [dbo].[VoucherFeeRelation] (" + columns + ")");
+            s.AppendLine("    SELECT " + string.Join(",", columns.Split(',').Select(c => "i." + c)) + " FROM @Import AS i");
+            s.AppendLine("    WHERE NOT EXISTS (SELECT 1 FROM @Existing AS e WHERE e.[OverseasType]=i.[OverseasType] AND e.[FeeNo]=i.[FeeNo]) OPTION (RECOMPILE);");
+            s.AppendLine("    SET @inserted = @@ROWCOUNT;\r\n    COMMIT TRANSACTION;");
+            s.AppendLine("    SET LOCK_TIMEOUT @previousLockTimeout;\r\n    IF @previousXactAbort=0 SET XACT_ABORT OFF;");
+            s.AppendLine("    SELECT @inserted AS [本次新增条数],@expected-@inserted AS [已存在跳过条数],@expected AS [本次数据条数];");
+            s.AppendLine("END TRY\r\nBEGIN CATCH\r\n    IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;");
+            s.AppendLine("    SET LOCK_TIMEOUT @previousLockTimeout;\r\n    IF @previousXactAbort=0 SET XACT_ABORT OFF;");
+            s.AppendLine("    IF ERROR_NUMBER()=1222\r\n        RAISERROR(N'等待数据库锁超过10秒，已回滚。请记录上方SPID，在另一窗口查询阻塞会话；不要反复重试或使用NOLOCK绕过检查。', 10, 1) WITH NOWAIT;");
+            s.AppendLine("    THROW;\r\nEND CATCH;\r\nGO");
             return s.ToString();
         }
     }
