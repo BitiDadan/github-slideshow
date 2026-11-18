@@ -36,6 +36,15 @@ class SqlGenerationChecks
             Check(sql.Contains("IF @previousLockTimeout=-1 SET LOCK_TIMEOUT 10000;") && sql.Split(new[] { "IF @previousLockTimeout=-1 SET LOCK_TIMEOUT -1;" }, StringSplitOptions.None).Length == 3, "default timeout restored on both success/error; existing finite timeout left unchanged");
             Check(sql.Contains("IF @previousXactAbort=0 SET XACT_ABORT OFF"), "restore XACT_ABORT");
             Check(sql.Contains("ROLLBACK TRANSACTION") && sql.Contains("THROW 50002"), "conflict rollback retained");
+            Check(sql.Contains("DECLARE @ConfirmKDVoucherDifferences bit = 0;") &&
+                sql.IndexOf("DECLARE @ConfirmKDVoucherDifferences", StringComparison.Ordinal) < sql.IndexOf("INSERT INTO @Import", StringComparison.Ordinal), "manual confirmation defaults to off at script front");
+            Check(sql.Contains("t.[OverseasType]='KDVoucher' AND t.[IsDeleted]=0") && sql.Contains("ON t.[FeeNo]=i.[FeeNo]"), "fixed active KDVoucher baseline matched by domestic code regardless of incoming type");
+            Check(sql.Contains("t.[FeeNoOverseas] IS NULL OR CONVERT(varbinary(20),t.[FeeNoOverseas])<>CONVERT(varbinary(20),i.[FeeNoOverseas])"), "baseline comparison includes NULL and byte differences");
+            int review = sql.IndexOf("THROW 50004", StringComparison.Ordinal);
+            Check(review > 0 && review < sql.IndexOf("BEGIN TRANSACTION", StringComparison.Ordinal) &&
+                review < sql.IndexOf("INSERT INTO [dbo].[VoucherFeeRelation]", StringComparison.Ordinal), "unconfirmed baseline differences stop before any target insert transaction");
+            Check(sql.Contains("AS [现存海外科目编码]") && sql.Contains("AS [拟导入海外科目编码]") && sql.Contains("AS [Excel行]"), "manual review identifies row and existing/incoming codes");
+            Check(sql.IndexOf("@sessionId int = @@SPID", StringComparison.Ordinal) < sql.IndexOf("INSERT INTO @KDVoucherDifferences", StringComparison.Ordinal), "session information displayed before baseline query");
         }
         string rules = Path.GetTempFileName();
         try

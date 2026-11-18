@@ -1,10 +1,10 @@
-# 财务科目对照导入工具 v1.2.0
+# 财务科目对照导入工具 v1.2.1
 
 C# / WinForms / .NET Framework 4.8。读取 Excel 科目对照表，预览并生成 SQL Server 2014 兼容的 INSERT 脚本。离线运行，不连接数据库，不依赖安装 Office。
 
 ## 下载运行
 
-打开本目录 `Downloads/FinanceMappingTool-v1.2.0.zip`，点击 GitHub 的 **Download raw file** 下载完整包。完整解压后进入 `Program`，双击 `FinanceMappingTool.exe`。EXE、DLL、配置文件必须放在同一目录。
+打开本目录 `Downloads/FinanceMappingTool-v1.2.1.zip`，点击 GitHub 的 **Download raw file** 下载完整包。完整解压后进入 `Program`，双击 `FinanceMappingTool.exe`。EXE、DLL、配置文件必须放在同一目录。
 
 需要 Windows 和 .NET Framework 4.8。无需安装 Python、.NET 8 或 VS 即可运行。
 
@@ -28,6 +28,18 @@ C# / WinForms / .NET Framework 4.8。读取 Excel 科目对照表，预览并生
 两侧均空忽略；缺一侧编码跳过并记录；空名称保留并提示；同一国内编码默认取第一条并列出重复行。
 CustomerType 初始规则为资产=1，其余=2；CreditDebitType 初始为NULL。可在预览修改。不执行任何后期维护 UPDATE。
 KDVoucher及其他自定义映射类型使用Excel对应关系；仅完整输入 KDVoucher02 时，海外编码/名称默认直接使用国内编码/名称，备注为02账套。类型输入完成离开文本框时刷新预览；更改类型会重置预览中的手工修改。
+
+## KDVoucher科目对应关系人工检查（v1.2.1）
+
+预览表格第一列宽度在按内容计算的基础上增加约50%，绑定数据后也保留该宽度。
+
+工具不连接数据库。导出SQL在正式INSERT前执行以下检查：固定选择目标数据库中 `OverseasType='KDVoucher' AND IsDeleted=0` 的有效记录，以相同 `FeeNo` 对应比较 `FeeNoOverseas`。无论当前输入的映射类型是什么，参照类型始终为KDVoucher。不同的国内科目对应同一个海外科目不作为本次差异；参照中没有该FeeNo则视为新映射。现存NULL编码或按字节比较不同的海外编码会列为差异。
+
+差异结果显示Excel行、拟导入类型、国内编码、参照类型、现存记录ID、现存海外编码和拟导入海外编码。首次保持脚本前部 `@ConfirmKDVoucherDifferences = 0`：有差异时显示结果并报50004停止，此时尚未开始正式插入事务；无差异时自动继续原有导入。
+
+人工核实后，可以修改来源数据并重新导出，或在确实允许与参照不同的情况下将确认值改为1再完整执行；再次执行会重新计算差异。该确认不会更新或覆盖旧数据，也不能绕过原有目标类型的内容冲突/重复检查。因此，目标也是KDVoucher且已经有不同内容时，即便确认仍会报原有冲突，需人工维护或修正数据。
+
+检查时使用正常已提交读，不使用NOLOCK，不跨人工确认过程持有事务。它是执行当时的对照结果，并非生成时预先读取数据库的结果，也不保证之后没有其他会话修改参照数据。
 
 ## 业务配置
 

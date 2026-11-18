@@ -32,7 +32,7 @@ namespace FinanceMappingTool
 
         public MainForm()
         {
-            Text = "财务科目对照导入工具 v1.2.0";
+            Text = "财务科目对照导入工具 v1.2.1";
             Font = new Font("Microsoft YaHei UI", 9F);
             StartPosition = FormStartPosition.CenterScreen;
             Size = new Size(1180, 780);
@@ -65,6 +65,7 @@ namespace FinanceMappingTool
             AddColumn("FeeNoOverseas", "海外科目编码"); AddColumn("FeeNameOverseas", "海外科目名称");
             AddColumn("OverseasType", "映射类型", true); AddColumn("CustomerType", "客户/供应商");
             AddColumn("CreditDebitType", "收付属性"); AddColumn("Memo", "备注");
+            grid.DataBindingComplete += (s, e) => ResizeFirstColumn();
             load.Click += async (s, e) => await LoadExcel();
             type.TextChanged += (s, e) =>
             {
@@ -88,6 +89,17 @@ namespace FinanceMappingTool
             grid.ColumnHeadersDefaultCellStyle.WrapMode = DataGridViewTriState.True;
             grid.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing;
             grid.ColumnHeadersHeight = Math.Max((int)Math.Ceiling(grid.ColumnHeadersHeight * 1.5), grid.Font.Height + 12);
+            ResizeFirstColumn();
+        }
+
+        private void ResizeFirstColumn()
+        {
+            if (grid.Columns.Count == 0) return;
+            var first = grid.Columns[0];
+            int preferred = first.GetPreferredWidth(DataGridViewAutoSizeColumnMode.DisplayedCells, true);
+            // Fix only this column so the grid's automatic sizing cannot shrink it back.
+            first.AutoSizeMode = DataGridViewAutoSizeColumnMode.None;
+            first.Width = (int)Math.Ceiling(preferred * 1.5);
         }
 
         private static void AddLabel(FlowLayoutPanel p, string text)
@@ -170,7 +182,7 @@ namespace FinanceMappingTool
                 if (dialog.ShowDialog(this) != DialogResult.OK) return;
                 File.WriteAllText(dialog.FileName, sql, new UTF8Encoding(true));
                 status.Text = "已导出 " + rows.Count + " 条映射：" + dialog.FileName;
-                MessageBox.Show(this, "SQL 已保存。请在 SSMS 中确认目标数据库后执行。\r\n工具没有连接或修改数据库。", "导出完成");
+                MessageBox.Show(this, "SQL 已保存。请在 SSMS 中确认目标数据库后执行。\r\n脚本会先与现存 KDVoucher 映射对比；有差异时列出结果并停止，供人工确认。\r\n工具没有连接或修改数据库。", "导出完成");
             }
         }
         private void SaveLog()
