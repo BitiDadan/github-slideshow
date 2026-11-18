@@ -3,6 +3,7 @@
   <ItemGroup>
     <Compile Include="../Source/Mapping.cs" Link="Mapping.cs" />
     <Compile Include="../Source/ExcelImport.cs" Link="ExcelImport.cs" />
+    <Compile Include="../Source/ExcelReport.cs" Link="ExcelReport.cs" />
     <PackageReference Include="ClosedXML" Version="0.102.3" />
     <PackageReference Include="Microsoft.SqlServer.TransactSql.ScriptDom" Version="161.8901.0" />
   </ItemGroup>

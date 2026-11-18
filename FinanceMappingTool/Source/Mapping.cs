@@ -106,8 +106,8 @@ namespace FinanceMappingTool
                     continue;
                 }
                 seen.Add(item.FeeNo, r);
-                if (item.FeeName.Length == 0 || item.FeeNameOverseas.Length == 0)
-                    result.Messages.Add("第 " + r + " 行：名称为空，仍保留该映射，请预览确认。");
+                if (string.IsNullOrWhiteSpace(item.FeeNameOverseas)) result.Messages.Add("第 " + r + " 行：海外科目名称为空。");
+                if (string.IsNullOrWhiteSpace(item.FeeName)) result.Messages.Add("第 " + r + " 行：国内科目名称为空。");
                 result.Rows.Add(item);
             }
             Validate(result.Rows);
@@ -183,16 +183,11 @@ namespace FinanceMappingTool
             var s = new StringBuilder();
             const string columns = "[FeeNo],[FeeName],[FeeNoOverseas],[FeeNameOverseas],[OverseasType],[Memo],[CustomerType],[CreditDebitType]";
             const string definition = "[FeeNo] varchar(20),[FeeName] nvarchar(400),[FeeNoOverseas] varchar(20),[FeeNameOverseas] nvarchar(400),[OverseasType] varchar(50),[Memo] nvarchar(400),[CustomerType] tinyint,[CreditDebitType] tinyint";
-            s.AppendLine("-- 财务科目映射导入 v1.2.1；仅 INSERT，不包含后期 UPDATE。");
+            s.AppendLine("-- 财务科目映射导入 v1.3.0；仅 INSERT，不包含后期 UPDATE。");
             s.AppendLine("-- 批量读取目标映射一次；相同内容跳过，冲突或重复则回滚。默认锁等待10秒；已有有限会话超时则沿用。");
             s.AppendLine("-- 手动取消后，请在原窗口检查 SELECT @@SPID, @@TRANCOUNT, XACT_STATE(); 注意客户端取消不一定进入 CATCH。");
             s.AppendLine("USE [" + database.Replace("]", "]]") + "];\r\nGO\r\nSET NOCOUNT ON;");
             s.AppendLine("IF @@TRANCOUNT <> 0\r\n    THROW 50003, N'当前窗口存在未结束事务。请先确认并提交或回滚原事务，再执行导入。', 1;");
-            s.AppendLine("-- 【人工确认选项】固定参照现存 OverseasType='KDVoucher' 且 IsDeleted=0 的有效数据。");
-            s.AppendLine("-- 首次执行保持0：发现同一FeeNo对应不同FeeNoOverseas时，列出差异并在插入前停止。");
-            s.AppendLine("-- 人工核实后，如确认允许与参照映射不同，可将下值改为1并重新执行；不会更新旧记录。");
-            s.AppendLine("-- 该确认只允许继续原有导入校验；目标类型自身存在冲突时仍会阻止插入。");
-            s.AppendLine("DECLARE @ConfirmKDVoucherDifferences bit = 0;");
             s.AppendLine("DECLARE @previousLockTimeout int = @@LOCK_TIMEOUT;");
             s.AppendLine("DECLARE @previousXactAbort bit = CASE WHEN (@@OPTIONS & 16384) = 16384 THEN 1 ELSE 0 END;");
             s.AppendLine("BEGIN TRY\r\n    IF @previousLockTimeout=-1 SET LOCK_TIMEOUT 10000;\r\n    SET XACT_ABORT ON;");
@@ -213,26 +208,7 @@ namespace FinanceMappingTool
                 }
             }
             s.AppendLine("    DECLARE @expected int = (SELECT COUNT(*) FROM @Import), @inserted int, @sessionId int = @@SPID;");
-            s.AppendLine("    DECLARE @effectiveLockTimeout int = @@LOCK_TIMEOUT;\r\n    RAISERROR(N'导入会话 SPID=%d，数据%d条；即将检查KDVoucher对应关系，锁等待超时设置%d毫秒。', 10, 1, @sessionId, @expected, @effectiveLockTimeout) WITH NOWAIT;");
-            s.AppendLine("    -- 第二部分：KDVoucher对应关系检查。此处尚未开始业务表插入事务。");
-            s.AppendLine("    RAISERROR(N'正在与现存 KDVoucher 有效映射进行对照检查。', 10, 1) WITH NOWAIT;");
-            s.AppendLine("    DECLARE @KDVoucherDifferences TABLE ([ExcelRow] int,[ImportType] varchar(50),[FeeNo] varchar(20),[ExistingID] int,[ExistingOverseas] varchar(20),[IncomingOverseas] varchar(20));");
-            s.AppendLine("    INSERT INTO @KDVoucherDifferences ([ExcelRow],[ImportType],[FeeNo],[ExistingID],[ExistingOverseas],[IncomingOverseas])");
-            s.AppendLine("    SELECT i.[ExcelRow],i.[OverseasType],i.[FeeNo],t.[ID],t.[FeeNoOverseas],i.[FeeNoOverseas]");
-            s.AppendLine("    FROM @Import AS i INNER JOIN [dbo].[VoucherFeeRelation] AS t ON t.[FeeNo]=i.[FeeNo]");
-            s.AppendLine("    WHERE t.[OverseasType]='KDVoucher' AND t.[IsDeleted]=0");
-            s.AppendLine("      AND (t.[FeeNoOverseas] IS NULL OR CONVERT(varbinary(20),t.[FeeNoOverseas])<>CONVERT(varbinary(20),i.[FeeNoOverseas])) OPTION (RECOMPILE);");
-            s.AppendLine("    IF EXISTS (SELECT 1 FROM @KDVoucherDifferences)");
-            s.AppendLine("    BEGIN");
-            s.AppendLine("        SELECT [ExcelRow] AS [Excel行],[ImportType] AS [拟导入映射类型],[FeeNo] AS [国内科目编码],");
-            s.AppendLine("               N'KDVoucher' AS [参照映射类型],[ExistingID] AS [现存记录ID],[ExistingOverseas] AS [现存海外科目编码],[IncomingOverseas] AS [拟导入海外科目编码]");
-            s.AppendLine("        FROM @KDVoucherDifferences ORDER BY [FeeNo],[ExcelRow],[ExistingID];");
-            s.AppendLine("        IF @ConfirmKDVoucherDifferences=0");
-            s.AppendLine("            THROW 50004, N'与现存KDVoucher科目对应关系存在差异，尚未插入任何业务数据。请人工核实结果；确认允许差异后，将脚本顶部@ConfirmKDVoucherDifferences改为1并重新执行。', 1;");
-            s.AppendLine("        RAISERROR(N'已设置人工确认继续；下面仍会执行目标类型的重复与内容冲突检查，不会覆盖旧数据。', 10, 1) WITH NOWAIT;");
-            s.AppendLine("    END");
-            s.AppendLine("    ELSE RAISERROR(N'KDVoucher对应关系检查通过：相同FeeNo未发现不同的FeeNoOverseas。', 10, 1) WITH NOWAIT;");
-            s.AppendLine("    -- 第三部分：正式导入；保留原有重复检查、冲突检查和整体事务。");
+            s.AppendLine("    DECLARE @effectiveLockTimeout int = @@LOCK_TIMEOUT;\r\n    RAISERROR(N'导入会话 SPID=%d，数据%d条；正在查询并锁定目标映射，锁等待超时设置%d毫秒。', 10, 1, @sessionId, @expected, @effectiveLockTimeout) WITH NOWAIT;");
             s.AppendLine("    DECLARE @Existing TABLE (" + definition + ");");
             s.AppendLine("    BEGIN TRANSACTION;");
             s.AppendLine("    INSERT INTO @Existing (" + columns + ")");

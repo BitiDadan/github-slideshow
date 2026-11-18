@@ -19,6 +19,8 @@ namespace FinanceMappingTool
         private readonly TextBox type = new TextBox { Text = "KDVoucher", MaxLength = 50, Width = 135 };
         private readonly Button load = new Button { Text = "选择并读取 Excel", AutoSize = true };
         private readonly Button export = new Button { Text = "导出 SQL", AutoSize = true, Enabled = false };
+        private readonly Button exportExcel = new Button { Text = "导出 Excel", AutoSize = true, Enabled = false };
+        private ReferenceConnectionSettings referenceSettings = new ReferenceConnectionSettings();
         private readonly Button saveLog = new Button { Text = "保存检查日志", AutoSize = true, Enabled = false };
         private readonly Label status = new Label { AutoSize = true, Text = "请选择 .xlsx 文件。" };
         private readonly TextBox log = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Both, Dock = DockStyle.Fill, WordWrap = false };
@@ -32,7 +34,7 @@ namespace FinanceMappingTool
 
         public MainForm()
         {
-            Text = "财务科目对照导入工具 v1.2.1";
+            Text = "财务科目对照导入工具 v1.3.0";
             Font = new Font("Microsoft YaHei UI", 9F);
             StartPosition = FormStartPosition.CenterScreen;
             Size = new Size(1180, 780);
@@ -51,7 +53,7 @@ namespace FinanceMappingTool
             AddLabel(options, "表头行"); options.Controls.Add(header);
             AddLabel(options, "映射类型"); options.Controls.Add(type);
             AddLabel(options, "目标数据库"); options.Controls.Add(database);
-            options.Controls.Add(export); options.Controls.Add(saveLog);
+            options.Controls.Add(export); options.Controls.Add(exportExcel); options.Controls.Add(saveLog);
             var previewPanel = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 2, ColumnCount = 1 };
             previewPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             previewPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
@@ -70,7 +72,7 @@ namespace FinanceMappingTool
             type.TextChanged += (s, e) =>
             {
                 if (source == null) return;
-                export.Enabled = !string.IsNullOrWhiteSpace(type.Text);
+                export.Enabled = exportExcel.Enabled = !string.IsNullOrWhiteSpace(type.Text);
                 status.Text = export.Enabled ? "映射类型已修改，离开输入框后刷新预览。" : "请输入映射类型。";
             };
             type.Leave += (s, e) =>
@@ -79,6 +81,7 @@ namespace FinanceMappingTool
                     TryAction(RefreshPreview);
             };
             export.Click += (s, e) => TryAction(ExportSql);
+            exportExcel.Click += async (s, e) => await ExportExcelAsync();
             saveLog.Click += (s, e) => TryAction(SaveLog);
             grid.DataError += (s, e) => { MessageBox.Show(this, "输入格式错误，请检查当前单元格。", "输入检查"); e.ThrowException = false; };
         }
@@ -116,7 +119,7 @@ namespace FinanceMappingTool
                 if (dialog.ShowDialog(this) != DialogResult.OK) return;
                 string file = dialog.FileName, sheetName = sheet.Text.Trim(); int headerRow = (int)header.Value;
                 // Clear previous results so a failed import cannot export stale data.
-                source = null; preview = null; previewType = null; grid.DataSource = null; export.Enabled = false;
+                source = null; preview = null; previewType = null; grid.DataSource = null; export.Enabled = exportExcel.Enabled = false;
                 path.Text = file; load.Enabled = false; type.Enabled = false; saveLog.Enabled = false;
                 status.Text = "正在读取和校验…"; log.Clear();
                 try
@@ -152,7 +155,7 @@ namespace FinanceMappingTool
                 }
                 catch (Exception ex)
                 {
-                    source = null; preview = null; previewType = null; grid.DataSource = null; export.Enabled = false;
+                    source = null; preview = null; previewType = null; grid.DataSource = null; export.Enabled = exportExcel.Enabled = false;
                     status.Text = "读取失败。"; log.Text = ex.ToString(); saveLog.Enabled = true;
                     MessageBox.Show(this, ex.Message, "读取失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
@@ -161,19 +164,17 @@ namespace FinanceMappingTool
         }
         private void RefreshPreview()
         {
-            export.Enabled = false;
+            export.Enabled = exportExcel.Enabled = false;
             var mappingType = type.Text.Trim();
             var rows = MappingEngine.ForType(source, mappingType, ruleFile);
             preview = new BindingList<MappingRow>(rows); grid.DataSource = preview;
             previewType = mappingType;
             status.Text = "当前预览：" + previewType + "，" + rows.Count + " 条。请检查映射和下方日志后导出。";
-            export.Enabled = true;
+            export.Enabled = exportExcel.Enabled = true;
         }
         private void ExportSql()
         {
-            if (preview == null || previewType != type.Text.Trim()) RefreshPreview();
-            if (!grid.EndEdit()) throw new InvalidOperationException("请先完成当前单元格的编辑。");
-            if (grid.DataSource != null) BindingContext[grid.DataSource].EndCurrentEdit();
+            CommitPreview();
             var rows = preview.ToList();
             string sql = MappingEngine.Sql(rows, database.Text.Trim());
             using (var dialog = new SaveFileDialog { Filter = "SQL 脚本 (*.sql)|*.sql", DefaultExt = "sql", AddExtension = true,
@@ -182,9 +183,81 @@ namespace FinanceMappingTool
                 if (dialog.ShowDialog(this) != DialogResult.OK) return;
                 File.WriteAllText(dialog.FileName, sql, new UTF8Encoding(true));
                 status.Text = "已导出 " + rows.Count + " 条映射：" + dialog.FileName;
-                MessageBox.Show(this, "SQL 已保存。请在 SSMS 中确认目标数据库后执行。\r\n脚本会先与现存 KDVoucher 映射对比；有差异时列出结果并停止，供人工确认。\r\n工具没有连接或修改数据库。", "导出完成");
+                MessageBox.Show(this, "SQL 已保存。请在 SSMS 中确认目标数据库后执行。\r\n本次SQL仅保存到本地，未执行数据库写入。", "导出完成");
             }
         }
+        private void CommitPreview()
+        {
+            if (preview == null || previewType != type.Text.Trim()) RefreshPreview();
+            if (!grid.EndEdit()) throw new InvalidOperationException("请先完成当前单元格的编辑。");
+            if (grid.DataSource != null) BindingContext[grid.DataSource].EndCurrentEdit();
+        }
+
+        private PreviewTable CapturePreview()
+        {
+            CommitPreview();
+            var columns = grid.Columns.Cast<DataGridViewColumn>().Where(c => c.Visible).OrderBy(c => c.DisplayIndex).ToList();
+            var records = grid.Rows.Cast<DataGridViewRow>().Where(r => !r.IsNewRow).Select(r =>
+                new PreviewRecord((MappingRow)r.DataBoundItem, columns.Select(c => r.Cells[c.Index].Value).ToArray())).ToList();
+            return new PreviewTable(columns.Select(c => c.HeaderText).ToArray(), records);
+        }
+
+        private void SetExcelExportBusy(bool busy)
+        {
+            load.Enabled = !busy; grid.Enabled = !busy; type.ReadOnly = busy;
+            sheet.ReadOnly = busy; header.Enabled = !busy; database.ReadOnly = busy;
+            export.Enabled = exportExcel.Enabled = !busy && preview != null && !string.IsNullOrWhiteSpace(type.Text);
+            UseWaitCursor = busy;
+        }
+
+        private async Task ExportExcelAsync()
+        {
+            bool busy = false;
+            ReferenceConnectionSettings connection = null;
+            try
+            {
+                var table = CapturePreview();
+                string file;
+                using (var dialog = new SaveFileDialog { Filter = "Excel 工作簿 (*.xlsx)|*.xlsx", DefaultExt = "xlsx", AddExtension = true,
+                    FileName = "科目数据_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".xlsx" })
+                {
+                    if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                    file = dialog.FileName;
+                }
+                if (string.IsNullOrWhiteSpace(referenceSettings.Database)) referenceSettings.Database = database.Text.Trim();
+                using (var dialog = new ReferenceConnectionForm(referenceSettings))
+                {
+                    if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                    connection = dialog.Settings;
+                    referenceSettings = connection.WithoutPassword();
+                }
+                SetExcelExportBusy(true); busy = true;
+                status.Text = "正在读取KDVoucher客户/供应商参照数据…";
+                var reference = await Task.Run(() => CustomerReferenceReader.Read(connection));
+                connection.Password = "";
+                var anomalies = ExcelReport.Analyze(table, reference);
+                status.Text = "正在生成一个含两个工作表的Excel文件…";
+                await Task.Run(() => ExcelReport.Save(file, table, anomalies));
+                log.AppendText(Environment.NewLine + "Excel异常检查参照：" + referenceSettings.Server + "/" + referenceSettings.Database +
+                    "；KDVoucher有效记录 " + reference.Count + " 条；读取时间 " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") +
+                    "；异常记录 " + anomalies.Count + " 条。");
+                if (reference.Count == 0) log.AppendText(Environment.NewLine + "参照数据为空：没有同国内科目可进行客户/供应商类型对比。");
+                saveLog.Enabled = true;
+                status.Text = "已导出一个Excel文件：科目数据 " + table.Records.Count + " 行，异常 " + anomalies.Count + " 条。";
+                MessageBox.Show(this, "已保存一个Excel文件，包含“科目数据”和“异常科目”两个工作表。\r\n异常数据行号对应“科目数据”中的实际行号（含表头）；同一数据命中两项检查时分别列出。\r\n" + file, "导出完成");
+            }
+            catch (Exception ex)
+            {
+                status.Text = "Excel导出未完成。";
+                MessageBox.Show(this, "Excel导出未完成：" + ex.Message + "\r\n如参照数据读取失败，请检查连接及SELECT权限；不会跳过类型检查后生成不完整报告。", "导出失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                if (connection != null) connection.Password = "";
+                if (busy) SetExcelExportBusy(false);
+            }
+        }
+
         private void SaveLog()
         {
             using (var dialog = new SaveFileDialog { Filter = "文本日志 (*.txt)|*.txt", FileName = "映射检查日志.txt" })
