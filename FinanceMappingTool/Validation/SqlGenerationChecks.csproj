@@ -2,6 +2,7 @@
   <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework></PropertyGroup>
   <ItemGroup>
     <Compile Include="../Source/Mapping.cs" Link="Mapping.cs" />
+    <Compile Include="../Source/ExcelImport.cs" Link="ExcelImport.cs" />
     <PackageReference Include="ClosedXML" Version="0.102.3" />
     <PackageReference Include="Microsoft.SqlServer.TransactSql.ScriptDom" Version="161.8901.0" />
   </ItemGroup>

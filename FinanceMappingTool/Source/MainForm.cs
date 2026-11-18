@@ -32,7 +32,7 @@ namespace FinanceMappingTool
 
         public MainForm()
         {
-            Text = "财务科目对照导入工具 v1.1.2";
+            Text = "财务科目对照导入工具 v1.2.0";
             Font = new Font("Microsoft YaHei UI", 9F);
             StartPosition = FormStartPosition.CenterScreen;
             Size = new Size(1180, 780);
@@ -82,6 +82,14 @@ namespace FinanceMappingTool
             grid.DataError += (s, e) => { MessageBox.Show(this, "输入格式错误，请检查当前单元格。", "输入检查"); e.ThrowException = false; };
         }
 
+        protected override void OnShown(EventArgs e)
+        {
+            base.OnShown(e);
+            grid.ColumnHeadersDefaultCellStyle.WrapMode = DataGridViewTriState.True;
+            grid.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing;
+            grid.ColumnHeadersHeight = Math.Max((int)Math.Ceiling(grid.ColumnHeadersHeight * 1.5), grid.Font.Height + 12);
+        }
+
         private static void AddLabel(FlowLayoutPanel p, string text)
         { p.Controls.Add(new Label { Text = text, AutoSize = true, Margin = new Padding(6, 7, 2, 0) }); }
         private void AddColumn(string property, string title, bool readOnly = false)
@@ -101,13 +109,33 @@ namespace FinanceMappingTool
                 status.Text = "正在读取和校验…"; log.Clear();
                 try
                 {
-                    var result = await Task.Run(() => MappingEngine.Read(file, sheetName, headerRow, ruleFile));
+                    ImportResult result;
+                    string[] selectedSources;
+                    using (var session = await Task.Run(() => MappingEngine.Open(file, sheetName, headerRow)))
+                    {
+                        var selected = session.AutomaticMapping;
+                        if (selected.Count != ExcelSchema.Fields.Count)
+                        {
+                            using (var mappingDialog = new ColumnMappingForm(session.Columns, selected))
+                            {
+                                if (mappingDialog.ShowDialog(this) != DialogResult.OK)
+                                {
+                                    status.Text = "已取消导入，未生成映射。";
+                                    return;
+                                }
+                                selected = mappingDialog.Mapping;
+                            }
+                        }
+                        selectedSources = ExcelSchema.Fields.Select(f => f.Header + " ← " +
+                            session.Columns.First(c => c.Number == selected[f.Field]).Label).ToArray();
+                        result = await Task.Run(() => session.Read(selected, ruleFile));
+                    }
                     source = result.Rows;
                     log.Lines = new[] { "来源：" + file, "工作表：" + sheetName + "；表头行：" + headerRow,
                         "基础映射 " + source.Count + " 条；缺一侧编码跳过 " + result.Skipped + " 行；重复国内编码忽略 " + result.Duplicates + " 行。",
                         "保留 Excel 原值；人工修订仅在 mapping-rules.xml 对应规则 enabled=true 时生效。",
                         "注意：本版不自动新增 Excel 中不存在的税务科目，也不复现原脚本后期 UPDATE。" }
-                        .Concat(result.Messages).ToArray();
+                        .Concat(selectedSources).Concat(result.Messages).ToArray();
                     RefreshPreview(); saveLog.Enabled = true;
                 }
                 catch (Exception ex)

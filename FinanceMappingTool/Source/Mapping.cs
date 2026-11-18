@@ -33,12 +33,12 @@ namespace FinanceMappingTool
 
     public static class MappingEngine
     {
-        private static string Cell(IXLWorksheet sheet, int row, int col)
+        internal static string Cell(IXLWorksheet sheet, int row, int col, bool isCode = false)
         {
             var c = sheet.Cell(row, col);
             if (c.DataType == XLDataType.Error)
                 throw new InvalidDataException("Excel 单元格 " + c.Address + " 包含错误值。");
-            if ((col == 1 || col == 4) && c.DataType == XLDataType.Number)
+            if (isCode && c.DataType == XLDataType.Number)
             {
                 double number = c.GetDouble();
                 if (number < 0 || number != Math.Truncate(number))
@@ -52,63 +52,63 @@ namespace FinanceMappingTool
 
         public static ImportResult Read(string file, string sheetName, int headerRow, string ruleFile)
         {
+            using (var session = Open(file, sheetName, headerRow))
+            {
+                var map = session.AutomaticMapping;
+                ExcelSchema.Validate(session.Columns, map);
+                return session.Read(map, ruleFile);
+            }
+        }
+
+        public static ExcelImportSession Open(string file, string sheetName, int headerRow)
+        { return new ExcelImportSession(file, sheetName, headerRow); }
+
+        internal static ImportResult ReadSheet(IXLWorksheet sheet, int headerRow, IDictionary<ExcelField, int> map, string ruleFile)
+        {
             var result = new ImportResult();
             var rules = XDocument.Load(ruleFile).Root;
             if (rules == null || rules.Name != "MappingRules") throw new InvalidDataException("规则文件根节点错误。");
-            using (var book = new XLWorkbook(file))
+            var seen = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            int last = sheet.LastRowUsed(XLCellsUsedOptions.Contents)?.RowNumber() ?? headerRow;
+            for (int r = headerRow + 1; r <= last; r++)
             {
-                IXLWorksheet sheet;
-                if (!book.TryGetWorksheet(sheetName, out sheet))
-                    throw new InvalidDataException("找不到工作表：" + sheetName);
-                var expected = new Dictionary<int, string> {
-                    {1,"*编码"}, {3,"名称（越南文）"}, {4,"科目编码"}, {5,"科目名称"}, {6,"科目类型"}
-                };
-                foreach (var pair in expected)
-                    if (Cell(sheet, headerRow, pair.Key) != pair.Value)
-                        throw new InvalidDataException("表头不匹配：" + sheet.Cell(headerRow, pair.Key).Address +
-                            " 应为“" + pair.Value + "”。请检查工作表和表头行。");
-                var seen = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-                int last = sheet.LastRowUsed(XLCellsUsedOptions.Contents)?.RowNumber() ?? headerRow;
-                for (int r = headerRow + 1; r <= last; r++)
+                string foreign = Cell(sheet, r, map[ExcelField.OverseasCode], true), domestic = Cell(sheet, r, map[ExcelField.DomesticCode], true);
+                if (foreign.Length == 0 && domestic.Length == 0) continue;
+                if (foreign.Length == 0 || domestic.Length == 0)
                 {
-                    string foreign = Cell(sheet, r, 1), domestic = Cell(sheet, r, 4);
-                    if (foreign.Length == 0 && domestic.Length == 0) continue;
-                    if (foreign.Length == 0 || domestic.Length == 0)
-                    {
-                        result.Skipped++;
-                        result.Messages.Add("第 " + r + " 行：一侧科目编码为空，已跳过（国内=" + domestic + "，海外=" + foreign + "）。");
-                        continue;
-                    }
-                    var item = new MappingRow { ExcelRow = r, FeeNo = domestic,
-                        FeeName = Cell(sheet, r, 5), FeeNoOverseas = foreign,
-                        FeeNameOverseas = Cell(sheet, r, 3), OverseasType = "KDVoucher",
-                        CustomerType = Cell(sheet, r, 6) == "资产" ? "1" : "2",
-                        CreditDebitType = "", Memo = "" };
-                    foreach (var rule in rules.Elements("Override"))
-                    {
-                        if ((string)rule.Attribute("enabled") != "true" ||
-                            (string)rule.Attribute("sourceFeeNo") != domestic ||
-                            (string)rule.Attribute("sourceOverseas") != foreign) continue;
-                        item.FeeNo = (string)rule.Attribute("feeNo") ?? item.FeeNo;
-                        item.FeeNoOverseas = (string)rule.Attribute("overseas") ?? item.FeeNoOverseas;
-                        item.FeeName = (string)rule.Attribute("feeName") ?? item.FeeName;
-                        item.FeeNameOverseas = (string)rule.Attribute("overseasName") ?? item.FeeNameOverseas;
-                        item.CustomerType = (string)rule.Attribute("customerType") ?? item.CustomerType;
-                        item.CreditDebitType = (string)rule.Attribute("creditDebitType") ?? item.CreditDebitType;
-                        result.Messages.Add("第 " + r + " 行：已应用配置中的人工修订。");
-                    }
-                    if (seen.ContainsKey(item.FeeNo))
-                    {
-                        result.Duplicates++;
-                        result.Messages.Add("第 " + r + " 行：国内科目 " + item.FeeNo + " 重复，保留第 " + seen[item.FeeNo] +
-                            " 行，忽略本行海外映射 " + item.FeeNoOverseas + "。");
-                        continue;
-                    }
-                    seen.Add(item.FeeNo, r);
-                    if (item.FeeName.Length == 0 || item.FeeNameOverseas.Length == 0)
-                        result.Messages.Add("第 " + r + " 行：名称为空，仍保留该映射，请预览确认。");
-                    result.Rows.Add(item);
+                    result.Skipped++;
+                    result.Messages.Add("第 " + r + " 行：一侧科目编码为空，已跳过（国内=" + domestic + "，海外=" + foreign + "）。");
+                    continue;
                 }
+                var item = new MappingRow { ExcelRow = r, FeeNo = domestic,
+                    FeeName = Cell(sheet, r, map[ExcelField.DomesticName]), FeeNoOverseas = foreign,
+                    FeeNameOverseas = Cell(sheet, r, map[ExcelField.OverseasName]), OverseasType = "KDVoucher",
+                    CustomerType = Cell(sheet, r, map[ExcelField.AccountKind]) == "资产" ? "1" : "2",
+                    CreditDebitType = "", Memo = "" };
+                foreach (var rule in rules.Elements("Override"))
+                {
+                    if ((string)rule.Attribute("enabled") != "true" ||
+                        (string)rule.Attribute("sourceFeeNo") != domestic ||
+                        (string)rule.Attribute("sourceOverseas") != foreign) continue;
+                    item.FeeNo = (string)rule.Attribute("feeNo") ?? item.FeeNo;
+                    item.FeeNoOverseas = (string)rule.Attribute("overseas") ?? item.FeeNoOverseas;
+                    item.FeeName = (string)rule.Attribute("feeName") ?? item.FeeName;
+                    item.FeeNameOverseas = (string)rule.Attribute("overseasName") ?? item.FeeNameOverseas;
+                    item.CustomerType = (string)rule.Attribute("customerType") ?? item.CustomerType;
+                    item.CreditDebitType = (string)rule.Attribute("creditDebitType") ?? item.CreditDebitType;
+                    result.Messages.Add("第 " + r + " 行：已应用配置中的人工修订。");
+                }
+                if (seen.ContainsKey(item.FeeNo))
+                {
+                    result.Duplicates++;
+                    result.Messages.Add("第 " + r + " 行：国内科目 " + item.FeeNo + " 重复，保留第 " + seen[item.FeeNo] +
+                        " 行，忽略本行海外映射 " + item.FeeNoOverseas + "。");
+                    continue;
+                }
+                seen.Add(item.FeeNo, r);
+                if (item.FeeName.Length == 0 || item.FeeNameOverseas.Length == 0)
+                    result.Messages.Add("第 " + r + " 行：名称为空，仍保留该映射，请预览确认。");
+                result.Rows.Add(item);
             }
             Validate(result.Rows);
             return result;
@@ -183,7 +183,7 @@ namespace FinanceMappingTool
             var s = new StringBuilder();
             const string columns = "[FeeNo],[FeeName],[FeeNoOverseas],[FeeNameOverseas],[OverseasType],[Memo],[CustomerType],[CreditDebitType]";
             const string definition = "[FeeNo] varchar(20),[FeeName] nvarchar(400),[FeeNoOverseas] varchar(20),[FeeNameOverseas] nvarchar(400),[OverseasType] varchar(50),[Memo] nvarchar(400),[CustomerType] tinyint,[CreditDebitType] tinyint";
-            s.AppendLine("-- 财务科目映射导入 v1.1.2；仅 INSERT，不包含后期 UPDATE。");
+            s.AppendLine("-- 财务科目映射导入 v1.2.0；仅 INSERT，不包含后期 UPDATE。");
             s.AppendLine("-- 批量读取目标映射一次；相同内容跳过，冲突或重复则回滚。默认锁等待10秒；已有有限会话超时则沿用。");
             s.AppendLine("-- 手动取消后，请在原窗口检查 SELECT @@SPID, @@TRANCOUNT, XACT_STATE(); 注意客户端取消不一定进入 CATCH。");
             s.AppendLine("USE [" + database.Replace("]", "]]") + "];\r\nGO\r\nSET NOCOUNT ON;");
