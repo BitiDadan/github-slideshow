@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Collections.Generic;
 using FinanceMappingTool;
 using Microsoft.SqlServer.TransactSql.ScriptDom;
@@ -30,7 +31,10 @@ class SqlGenerationChecks
             Check(sql.Split(new[] { "WITH (UPDLOCK,HOLDLOCK)" }, StringSplitOptions.None).Length == 2, "one target snapshot statement");
             Check(sql.Contains("IF @@TRANCOUNT <> 0") && sql.Contains("SET LOCK_TIMEOUT 10000"), "transaction preflight and bounded lock wait");
             Check(sql.Contains("@expected int = (SELECT COUNT(*) FROM @Import)"), "actual input count");
-            Check(sql.Contains("SET LOCK_TIMEOUT @previousLockTimeout") && sql.Contains("IF @previousXactAbort=0 SET XACT_ABORT OFF"), "restore session settings");
+            // ScriptDom accepts SET LOCK_TIMEOUT variables that the server rejects: explicit regression guard.
+            Check(!Regex.IsMatch(sql, @"\bSET\s+LOCK_TIMEOUT\s+@", RegexOptions.IgnoreCase), "LOCK_TIMEOUT must use integer literals, never variables");
+            Check(sql.Contains("IF @previousLockTimeout=-1 SET LOCK_TIMEOUT 10000;") && sql.Split(new[] { "IF @previousLockTimeout=-1 SET LOCK_TIMEOUT -1;" }, StringSplitOptions.None).Length == 3, "default timeout restored on both success/error; existing finite timeout left unchanged");
+            Check(sql.Contains("IF @previousXactAbort=0 SET XACT_ABORT OFF"), "restore XACT_ABORT");
             Check(sql.Contains("ROLLBACK TRANSACTION") && sql.Contains("THROW 50002"), "conflict rollback retained");
         }
         if (args.Length > 0) Parse(File.ReadAllText(args[0]), "diagnostic script");

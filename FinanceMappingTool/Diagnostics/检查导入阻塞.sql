@@ -1,6 +1,9 @@
 -- 只读诊断脚本，不会终止会话、回滚事务或修改表。
 -- 先切换到实际目标数据库。在“另一个查询窗口”运行，以观察正在等待的导入。
 -- 将 NULL 改为导入脚本消息中显示的 SPID，可定位具体会话；不指定时查看当前库的活动请求。
+SELECT SERVERPROPERTY('ProductVersion') AS [数据库引擎版本],
+       SERVERPROPERTY('ProductLevel') AS [补丁级别],
+       SERVERPROPERTY('Edition') AS [数据库版本类型];
 DECLARE @TargetSessionId int = NULL;
 SELECT DB_NAME() AS [当前数据库],@@SPID AS [本诊断窗口SPID],@@TRANCOUNT AS [本窗口事务数],XACT_STATE() AS [本窗口事务状态];
 

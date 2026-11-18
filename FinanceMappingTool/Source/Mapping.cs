@@ -182,14 +182,14 @@ namespace FinanceMappingTool
             var s = new StringBuilder();
             const string columns = "[FeeNo],[FeeName],[FeeNoOverseas],[FeeNameOverseas],[OverseasType],[Memo],[CustomerType],[CreditDebitType]";
             const string definition = "[FeeNo] varchar(20),[FeeName] nvarchar(400),[FeeNoOverseas] varchar(20),[FeeNameOverseas] nvarchar(400),[OverseasType] varchar(50),[Memo] nvarchar(400),[CustomerType] tinyint,[CreditDebitType] tinyint";
-            s.AppendLine("-- 财务科目映射导入 v1.1；仅 INSERT，不包含后期 UPDATE。");
-            s.AppendLine("-- 批量读取目标映射一次；相同内容跳过，冲突或重复则回滚。锁等待超时10秒（不是总执行时限）。");
+            s.AppendLine("-- 财务科目映射导入 v1.1.1；仅 INSERT，不包含后期 UPDATE。");
+            s.AppendLine("-- 批量读取目标映射一次；相同内容跳过，冲突或重复则回滚。默认锁等待10秒；已有有限会话超时则沿用。");
             s.AppendLine("-- 手动取消后，请在原窗口检查 SELECT @@SPID, @@TRANCOUNT, XACT_STATE(); 注意客户端取消不一定进入 CATCH。");
             s.AppendLine("USE [" + database.Replace("]", "]]") + "];\r\nGO\r\nSET NOCOUNT ON;");
             s.AppendLine("IF @@TRANCOUNT <> 0\r\n    THROW 50003, N'当前窗口存在未结束事务。请先确认并提交或回滚原事务，再执行导入。', 1;");
             s.AppendLine("DECLARE @previousLockTimeout int = @@LOCK_TIMEOUT;");
             s.AppendLine("DECLARE @previousXactAbort bit = CASE WHEN (@@OPTIONS & 16384) = 16384 THEN 1 ELSE 0 END;");
-            s.AppendLine("BEGIN TRY\r\n    SET LOCK_TIMEOUT 10000;\r\n    SET XACT_ABORT ON;");
+            s.AppendLine("BEGIN TRY\r\n    IF @previousLockTimeout=-1 SET LOCK_TIMEOUT 10000;\r\n    SET XACT_ABORT ON;");
             s.AppendLine("    DECLARE @Import TABLE ([ExcelRow] int," + definition + ", PRIMARY KEY ([OverseasType],[FeeNo]));");
             // SQL Server limits a direct INSERT VALUES constructor to 1000 rows.
             for (int offset = 0; offset < rows.Count; offset += 1000)
@@ -206,7 +206,7 @@ namespace FinanceMappingTool
                 }
             }
             s.AppendLine("    DECLARE @expected int = (SELECT COUNT(*) FROM @Import), @inserted int, @sessionId int = @@SPID;");
-            s.AppendLine("    RAISERROR(N'导入会话 SPID=%d，数据%d条；正在查询并锁定目标映射，单次锁等待上限10秒。', 10, 1, @sessionId, @expected) WITH NOWAIT;");
+            s.AppendLine("    DECLARE @effectiveLockTimeout int = @@LOCK_TIMEOUT;\r\n    RAISERROR(N'导入会话 SPID=%d，数据%d条；正在查询并锁定目标映射，锁等待超时设置%d毫秒。', 10, 1, @sessionId, @expected, @effectiveLockTimeout) WITH NOWAIT;");
             s.AppendLine("    DECLARE @Existing TABLE (" + definition + ");");
             s.AppendLine("    BEGIN TRANSACTION;");
             s.AppendLine("    INSERT INTO @Existing (" + columns + ")");
@@ -230,11 +230,11 @@ namespace FinanceMappingTool
             s.AppendLine("    SELECT " + string.Join(",", columns.Split(',').Select(c => "i." + c)) + " FROM @Import AS i");
             s.AppendLine("    WHERE NOT EXISTS (SELECT 1 FROM @Existing AS e WHERE e.[OverseasType]=i.[OverseasType] AND e.[FeeNo]=i.[FeeNo]) OPTION (RECOMPILE);");
             s.AppendLine("    SET @inserted = @@ROWCOUNT;\r\n    COMMIT TRANSACTION;");
-            s.AppendLine("    SET LOCK_TIMEOUT @previousLockTimeout;\r\n    IF @previousXactAbort=0 SET XACT_ABORT OFF;");
+            s.AppendLine("    IF @previousLockTimeout=-1 SET LOCK_TIMEOUT -1;\r\n    IF @previousXactAbort=0 SET XACT_ABORT OFF;");
             s.AppendLine("    SELECT @inserted AS [本次新增条数],@expected-@inserted AS [已存在跳过条数],@expected AS [本次数据条数];");
             s.AppendLine("END TRY\r\nBEGIN CATCH\r\n    IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;");
-            s.AppendLine("    SET LOCK_TIMEOUT @previousLockTimeout;\r\n    IF @previousXactAbort=0 SET XACT_ABORT OFF;");
-            s.AppendLine("    IF ERROR_NUMBER()=1222\r\n        RAISERROR(N'等待数据库锁超过10秒，已回滚。请记录上方SPID，在另一窗口查询阻塞会话；不要反复重试或使用NOLOCK绕过检查。', 10, 1) WITH NOWAIT;");
+            s.AppendLine("    IF @previousLockTimeout=-1 SET LOCK_TIMEOUT -1;\r\n    IF @previousXactAbort=0 SET XACT_ABORT OFF;");
+            s.AppendLine("    IF ERROR_NUMBER()=1222\r\n        RAISERROR(N'等待数据库锁超时，已回滚。请记录上方SPID，在另一窗口查询阻塞会话；不要反复重试或使用NOLOCK绕过检查。', 10, 1) WITH NOWAIT;");
             s.AppendLine("    THROW;\r\nEND CATCH;\r\nGO");
             return s.ToString();
         }
