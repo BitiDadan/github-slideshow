@@ -16,7 +16,7 @@ namespace FinanceMappingTool
         private readonly TextBox sheet = new TextBox { Text = "科目对照表", Width = 130 };
         private readonly TextBox database = new TextBox { Text = "FinanceDB", Width = 120 };
         private readonly NumericUpDown header = new NumericUpDown { Minimum = 1, Maximum = 10000, Value = 1, Width = 55 };
-        private readonly ComboBox type = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 135 };
+        private readonly TextBox type = new TextBox { Text = "KDVoucher", MaxLength = 50, Width = 135 };
         private readonly Button load = new Button { Text = "选择并读取 Excel", AutoSize = true };
         private readonly Button export = new Button { Text = "导出 SQL", AutoSize = true, Enabled = false };
         private readonly Button saveLog = new Button { Text = "保存检查日志", AutoSize = true, Enabled = false };
@@ -27,11 +27,12 @@ namespace FinanceMappingTool
             AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells };
         private List<MappingRow> source;
         private BindingList<MappingRow> preview;
+        private string previewType;
         private string ruleFile => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "mapping-rules.xml");
 
         public MainForm()
         {
-            Text = "财务科目对照导入工具 v1.1.1";
+            Text = "财务科目对照导入工具 v1.1.2";
             Font = new Font("Microsoft YaHei UI", 9F);
             StartPosition = FormStartPosition.CenterScreen;
             Size = new Size(1180, 780);
@@ -60,13 +61,22 @@ namespace FinanceMappingTool
             panel.Controls.Add(files, 0, 0); panel.Controls.Add(options, 0, 1); panel.Controls.Add(previewPanel, 0, 2);
             panel.Controls.Add(status, 0, 3); panel.Controls.Add(log, 0, 4);
             Controls.Add(panel);
-            type.Items.AddRange(new object[] { "KDVoucher", "KDVoucher02" }); type.SelectedIndex = 0;
             AddColumn("ExcelRow", "Excel行", true); AddColumn("FeeNo", "国内科目编码"); AddColumn("FeeName", "国内科目名称");
             AddColumn("FeeNoOverseas", "海外科目编码"); AddColumn("FeeNameOverseas", "海外科目名称");
             AddColumn("OverseasType", "映射类型", true); AddColumn("CustomerType", "客户/供应商");
             AddColumn("CreditDebitType", "收付属性"); AddColumn("Memo", "备注");
             load.Click += async (s, e) => await LoadExcel();
-            type.SelectedIndexChanged += (s, e) => { if (source != null) TryAction(RefreshPreview); };
+            type.TextChanged += (s, e) =>
+            {
+                if (source == null) return;
+                export.Enabled = !string.IsNullOrWhiteSpace(type.Text);
+                status.Text = export.Enabled ? "映射类型已修改，离开输入框后刷新预览。" : "请输入映射类型。";
+            };
+            type.Leave += (s, e) =>
+            {
+                if (source != null && !string.IsNullOrWhiteSpace(type.Text) && previewType != type.Text.Trim())
+                    TryAction(RefreshPreview);
+            };
             export.Click += (s, e) => TryAction(ExportSql);
             saveLog.Click += (s, e) => TryAction(SaveLog);
             grid.DataError += (s, e) => { MessageBox.Show(this, "输入格式错误，请检查当前单元格。", "输入检查"); e.ThrowException = false; };
@@ -86,7 +96,7 @@ namespace FinanceMappingTool
                 if (dialog.ShowDialog(this) != DialogResult.OK) return;
                 string file = dialog.FileName, sheetName = sheet.Text.Trim(); int headerRow = (int)header.Value;
                 // Clear previous results so a failed import cannot export stale data.
-                source = null; preview = null; grid.DataSource = null; export.Enabled = false;
+                source = null; preview = null; previewType = null; grid.DataSource = null; export.Enabled = false;
                 path.Text = file; load.Enabled = false; type.Enabled = false; saveLog.Enabled = false;
                 status.Text = "正在读取和校验…"; log.Clear();
                 try
@@ -102,7 +112,7 @@ namespace FinanceMappingTool
                 }
                 catch (Exception ex)
                 {
-                    source = null; preview = null; grid.DataSource = null; export.Enabled = false;
+                    source = null; preview = null; previewType = null; grid.DataSource = null; export.Enabled = false;
                     status.Text = "读取失败。"; log.Text = ex.ToString(); saveLog.Enabled = true;
                     MessageBox.Show(this, ex.Message, "读取失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
@@ -112,19 +122,22 @@ namespace FinanceMappingTool
         private void RefreshPreview()
         {
             export.Enabled = false;
-            var rows = MappingEngine.ForType(source, type.Text, ruleFile);
+            var mappingType = type.Text.Trim();
+            var rows = MappingEngine.ForType(source, mappingType, ruleFile);
             preview = new BindingList<MappingRow>(rows); grid.DataSource = preview;
-            status.Text = "当前预览：" + type.Text + "，" + rows.Count + " 条。请检查映射和下方日志后导出。";
+            previewType = mappingType;
+            status.Text = "当前预览：" + previewType + "，" + rows.Count + " 条。请检查映射和下方日志后导出。";
             export.Enabled = true;
         }
         private void ExportSql()
         {
+            if (preview == null || previewType != type.Text.Trim()) RefreshPreview();
             if (!grid.EndEdit()) throw new InvalidOperationException("请先完成当前单元格的编辑。");
             if (grid.DataSource != null) BindingContext[grid.DataSource].EndCurrentEdit();
             var rows = preview.ToList();
             string sql = MappingEngine.Sql(rows, database.Text.Trim());
             using (var dialog = new SaveFileDialog { Filter = "SQL 脚本 (*.sql)|*.sql", DefaultExt = "sql", AddExtension = true,
-                FileName = "VoucherFeeRelation_" + type.Text + "_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".sql" })
+                FileName = "VoucherFeeRelation_" + string.Concat(previewType.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c)) + "_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".sql" })
             {
                 if (dialog.ShowDialog(this) != DialogResult.OK) return;
                 File.WriteAllText(dialog.FileName, sql, new UTF8Encoding(true));

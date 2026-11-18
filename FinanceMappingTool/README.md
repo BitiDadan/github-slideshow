@@ -1,10 +1,10 @@
-# 财务科目对照导入工具 v1.1.1
+# 财务科目对照导入工具 v1.1.2
 
 C# / WinForms / .NET Framework 4.8。读取 Excel 科目对照表，预览并生成 SQL Server 2014 兼容的 INSERT 脚本。离线运行，不连接数据库，不依赖安装 Office。
 
 ## 下载运行
 
-打开本目录 `Downloads/FinanceMappingTool-v1.1.1.zip`，点击 GitHub 的 **Download raw file** 下载完整包。完整解压后进入 `Program`，双击 `FinanceMappingTool.exe`。EXE、DLL、配置文件必须放在同一目录。
+打开本目录 `Downloads/FinanceMappingTool-v1.1.2.zip`，点击 GitHub 的 **Download raw file** 下载完整包。完整解压后进入 `Program`，双击 `FinanceMappingTool.exe`。EXE、DLL、配置文件必须放在同一目录。
 
 需要 Windows 和 .NET Framework 4.8。无需安装 Python、.NET 8 或 VS 即可运行。
 
@@ -16,7 +16,7 @@ C# / WinForms / .NET Framework 4.8。读取 Excel 科目对照表，预览并生
 
 1. 选择 `.xlsx`，默认工作表“科目对照表”，表头第1行。
 2. 预览结果及日志，可以修改科目编码、名称和属性。
-3. 选择映射类型，填写实际目标数据库名称。公开版本默认值 `FinanceDB` 只是占位，执行前必须改为实际库名。
+3. 在文本框中输入映射类型，默认 KDVoucher，支持自定义名称（最多50个可打印ASCII字符，不能为空）。填写实际目标数据库名称。公开版本默认值 `FinanceDB` 只是占位，执行前必须改为实际库名。
 4. 导出 SQL，先在测试数据库用 SSMS 打开并核对执行。
 
 固定表头：A `*编码`、C `名称（越南文）`、D `科目编码`、E `科目名称`、F `科目类型`。读取 A/C/D/E，B不参与，G以后的拼接辅助列不使用。
@@ -24,7 +24,7 @@ C# / WinForms / .NET Framework 4.8。读取 Excel 科目对照表，预览并生
 D→FeeNo，E→FeeName，A→FeeNoOverseas，C→FeeNameOverseas。
 两侧均空忽略；缺一侧编码跳过并记录；空名称保留并提示；同一国内编码默认取第一条并列出重复行。
 CustomerType 初始规则为资产=1，其余=2；CreditDebitType 初始为NULL。可在预览修改。不执行任何后期维护 UPDATE。
-KDVoucher 使用Excel对应关系；KDVoucher02 默认海外编码/名称直接使用国内编码/名称，备注为02账套。
+KDVoucher及其他自定义映射类型使用Excel对应关系；仅完整输入 KDVoucher02 时，海外编码/名称默认直接使用国内编码/名称，备注为02账套。类型输入完成离开文本框时刷新预览；更改类型会重置预览中的手工修改。
 
 ## 业务配置
 

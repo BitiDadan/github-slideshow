@@ -37,6 +37,30 @@ class SqlGenerationChecks
             Check(sql.Contains("IF @previousXactAbort=0 SET XACT_ABORT OFF"), "restore XACT_ABORT");
             Check(sql.Contains("ROLLBACK TRANSACTION") && sql.Contains("THROW 50002"), "conflict rollback retained");
         }
+        string rules = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(rules, "<MappingRules />");
+            var seed = new List<MappingRow> { new MappingRow { ExcelRow = 2, FeeNo = "DEMO1", FeeName = "国内名称",
+                FeeNoOverseas = "FOREIGN1", FeeNameOverseas = "Foreign name", OverseasType = "KDVoucher",
+                CustomerType = "1", CreditDebitType = "", Memo = "" } };
+            var custom = MappingEngine.ForType(seed, "  MyCustomType  ", rules);
+            Check(custom[0].OverseasType == "MyCustomType" && custom[0].FeeNoOverseas == "FOREIGN1", "custom type accepted, trimmed and preserves Excel mapping");
+            Check(seed[0].OverseasType == "KDVoucher", "custom type leaves source unchanged");
+            var type02 = MappingEngine.ForType(seed, "KDVoucher02", rules);
+            Check(type02[0].FeeNoOverseas == "DEMO1" && type02[0].Memo == "02账套", "existing type02 conversion retained");
+            var quoted = MappingEngine.ForType(seed, "My'Type", rules);
+            string quotedSql = MappingEngine.Sql(quoted, "DemoDB");
+            Parse(quotedSql, "custom type quoting");
+            Check(quotedSql.Contains("'My''Type'"), "custom type SQL escaping");
+            foreach (string invalid in new[] { "", "   ", new string('A', 51) })
+            {
+                bool rejected = false;
+                try { MappingEngine.ForType(seed, invalid, rules); } catch (InvalidDataException) { rejected = true; }
+                Check(rejected, "empty and overlong types rejected");
+            }
+        }
+        finally { File.Delete(rules); }
         if (args.Length > 0) Parse(File.ReadAllText(args[0]), "diagnostic script");
         Console.WriteLine("Generation and parser checks only; no SQL Server was executed.");
     }
