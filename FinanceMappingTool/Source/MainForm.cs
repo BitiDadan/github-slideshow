@@ -20,7 +20,6 @@ namespace FinanceMappingTool
         private readonly Button load = new Button { Text = "选择并读取 Excel", AutoSize = true };
         private readonly Button export = new Button { Text = "导出 SQL", AutoSize = true, Enabled = false };
         private readonly Button exportExcel = new Button { Text = "导出 Excel", AutoSize = true, Enabled = false };
-        private ReferenceConnectionSettings referenceSettings = new ReferenceConnectionSettings();
         private readonly Button saveLog = new Button { Text = "保存检查日志", AutoSize = true, Enabled = false };
         private readonly Label status = new Label { AutoSize = true, Text = "请选择 .xlsx 文件。" };
         private readonly TextBox log = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Both, Dock = DockStyle.Fill, WordWrap = false };
@@ -34,7 +33,7 @@ namespace FinanceMappingTool
 
         public MainForm()
         {
-            Text = "财务科目对照导入工具 v1.3.0";
+            Text = "财务科目对照导入工具 v1.3.1";
             Font = new Font("Microsoft YaHei UI", 9F);
             StartPosition = FormStartPosition.CenterScreen;
             Size = new Size(1180, 780);
@@ -213,7 +212,6 @@ namespace FinanceMappingTool
         private async Task ExportExcelAsync()
         {
             bool busy = false;
-            ReferenceConnectionSettings connection = null;
             try
             {
                 var table = CapturePreview();
@@ -224,22 +222,17 @@ namespace FinanceMappingTool
                     if (dialog.ShowDialog(this) != DialogResult.OK) return;
                     file = dialog.FileName;
                 }
-                if (string.IsNullOrWhiteSpace(referenceSettings.Database)) referenceSettings.Database = database.Text.Trim();
-                using (var dialog = new ReferenceConnectionForm(referenceSettings))
-                {
-                    if (dialog.ShowDialog(this) != DialogResult.OK) return;
-                    connection = dialog.Settings;
-                    referenceSettings = connection.WithoutPassword();
-                }
+                string referenceFile = CustomerReferenceReader.DefaultFilePath;
+                if (string.Equals(Path.GetFullPath(file), Path.GetFullPath(referenceFile), StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException("导出文件不能覆盖参照文件“当前主数据.xlsx”，请选择其他文件名。");
                 SetExcelExportBusy(true); busy = true;
-                status.Text = "正在读取KDVoucher客户/供应商参照数据…";
-                var reference = await Task.Run(() => CustomerReferenceReader.Read(connection));
-                connection.Password = "";
+                status.Text = "正在读取程序目录下的当前主数据.xlsx（Main）…";
+                var reference = await Task.Run(() => CustomerReferenceReader.Read(referenceFile));
                 var anomalies = ExcelReport.Analyze(table, reference);
                 status.Text = "正在生成一个含两个工作表的Excel文件…";
                 await Task.Run(() => ExcelReport.Save(file, table, anomalies));
-                log.AppendText(Environment.NewLine + "Excel异常检查参照：" + referenceSettings.Server + "/" + referenceSettings.Database +
-                    "；KDVoucher有效记录 " + reference.Count + " 条；读取时间 " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") +
+                log.AppendText(Environment.NewLine + "Excel异常检查参照：" + referenceFile + " / Main" +
+                    "；参照有效记录 " + reference.Count + " 条；读取时间 " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") +
                     "；异常记录 " + anomalies.Count + " 条。");
                 if (reference.Count == 0) log.AppendText(Environment.NewLine + "参照数据为空：没有同国内科目可进行客户/供应商类型对比。");
                 saveLog.Enabled = true;
@@ -249,11 +242,10 @@ namespace FinanceMappingTool
             catch (Exception ex)
             {
                 status.Text = "Excel导出未完成。";
-                MessageBox.Show(this, "Excel导出未完成：" + ex.Message + "\r\n如参照数据读取失败，请检查连接及SELECT权限；不会跳过类型检查后生成不完整报告。", "导出失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show(this, "Excel导出未完成：" + ex.Message + "\r\n请检查程序EXE所在目录的“当前主数据.xlsx”、Main工作表以及FeeNo、CustomerType列；不会跳过类型检查后生成不完整报告。", "导出失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             finally
             {
-                if (connection != null) connection.Password = "";
                 if (busy) SetExcelExportBusy(false);
             }
         }
