@@ -114,15 +114,15 @@ namespace FinanceMappingTool
             return result;
         }
 
-        public static List<MappingRow> ForType(IEnumerable<MappingRow> source, string type, string ruleFile)
+        public static List<MappingRow> ForType(IEnumerable<MappingRow> source, string type, string ruleFile, string companyCode = "")
         {
             type = (type ?? "").Trim();
-            Check(type, 50, true, true, "映射类型");
+            string finalType = CompanyExportOptions.ComposeMappingType(type, companyCode);
             var root = XDocument.Load(ruleFile).Root;
             var rows = source.Select(x => x.Copy()).ToList();
             foreach (var row in rows)
             {
-                row.OverseasType = type;
+                row.OverseasType = finalType;
                 if (type == "KDVoucher02")
                 {
                     row.FeeNoOverseas = row.FeeNo;
@@ -175,15 +175,21 @@ namespace FinanceMappingTool
         private static string Q(string s, bool unicode = true)
         { return (unicode ? "N" : "") + "'" + (s ?? "").Replace("'", "''") + "'"; }
 
-        public static string Sql(IList<MappingRow> rows, string database)
+        public static string Sql(IList<MappingRow> rows, string database, CompanyExportOptions company = null)
         {
             Validate(rows);
+            if (company != null)
+            {
+                company.Validate();
+                if (rows.Any(r => r.OverseasType != company.OverseasType))
+                    throw new InvalidDataException("科目关系与公司关系的最终映射类型不一致，请刷新预览后重试。");
+            }
             if (string.IsNullOrWhiteSpace(database) || database.Length > 128 || database.Any(char.IsControl))
                 throw new InvalidDataException("请填写有效的目标数据库名称（最多128字符）。");
             var s = new StringBuilder();
             const string columns = "[FeeNo],[FeeName],[FeeNoOverseas],[FeeNameOverseas],[OverseasType],[Memo],[CustomerType],[CreditDebitType]";
             const string definition = "[FeeNo] varchar(20),[FeeName] nvarchar(400),[FeeNoOverseas] varchar(20),[FeeNameOverseas] nvarchar(400),[OverseasType] varchar(50),[Memo] nvarchar(400),[CustomerType] tinyint,[CreditDebitType] tinyint";
-            s.AppendLine("-- 财务科目映射导入 v1.3.1；仅 INSERT，不包含后期 UPDATE。");
+            s.AppendLine("-- 财务科目映射导入 v1.4.0；仅 INSERT，不包含后期 UPDATE。");
             s.AppendLine("-- 批量读取目标映射一次；相同内容跳过，冲突或重复则回滚。默认锁等待10秒；已有有限会话超时则沿用。");
             s.AppendLine("-- 手动取消后，请在原窗口检查 SELECT @@SPID, @@TRANCOUNT, XACT_STATE(); 注意客户端取消不一定进入 CATCH。");
             s.AppendLine("USE [" + database.Replace("]", "]]") + "];\r\nGO\r\nSET NOCOUNT ON;");
@@ -227,18 +233,40 @@ namespace FinanceMappingTool
             s.AppendLine("    IF EXISTS (SELECT 1 " + conflict + ")\r\n    BEGIN");
             s.AppendLine("        SELECT N'映射内容冲突：i为导入内容，e为已有内容' AS [问题],i.*,e.* " + conflict + ";");
             s.AppendLine("        THROW 50002, N'目标库映射内容冲突，详情见结果集。导入已回滚。', 1;\r\n    END;");
+            if (company != null && company.HasCompany) AppendCompanyRelation(s, company);
             s.AppendLine("    RAISERROR(N'目标映射检查完成，正在批量插入。', 10, 1) WITH NOWAIT;");
             s.AppendLine("    INSERT INTO [dbo].[VoucherFeeRelation] (" + columns + ")");
             s.AppendLine("    SELECT " + string.Join(",", columns.Split(',').Select(c => "i." + c)) + " FROM @Import AS i");
             s.AppendLine("    WHERE NOT EXISTS (SELECT 1 FROM @Existing AS e WHERE e.[OverseasType]=i.[OverseasType] AND e.[FeeNo]=i.[FeeNo]) OPTION (RECOMPILE);");
             s.AppendLine("    SET @inserted = @@ROWCOUNT;\r\n    COMMIT TRANSACTION;");
             s.AppendLine("    IF @previousLockTimeout=-1 SET LOCK_TIMEOUT -1;\r\n    IF @previousXactAbort=0 SET XACT_ABORT OFF;");
-            s.AppendLine("    SELECT @inserted AS [本次新增条数],@expected-@inserted AS [已存在跳过条数],@expected AS [本次数据条数];");
+            s.AppendLine("    SELECT @inserted AS [本次新增条数],@expected-@inserted AS [已存在跳过条数],@expected AS [本次数据条数]" +
+                (company != null && company.HasCompany ? ",@companyInserted AS [公司关系新增条数]" : "") + ";");
             s.AppendLine("END TRY\r\nBEGIN CATCH\r\n    IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;");
             s.AppendLine("    IF @previousLockTimeout=-1 SET LOCK_TIMEOUT -1;\r\n    IF @previousXactAbort=0 SET XACT_ABORT OFF;");
             s.AppendLine("    IF ERROR_NUMBER()=1222\r\n        RAISERROR(N'等待数据库锁超时，已回滚。请记录上方SPID，在另一窗口查询阻塞会话；不要反复重试或使用NOLOCK绕过检查。', 10, 1) WITH NOWAIT;");
             s.AppendLine("    THROW;\r\nEND CATCH;\r\nGO");
             return s.ToString();
+        }
+        private static void AppendCompanyRelation(StringBuilder s, CompanyExportOptions company)
+        {
+            string code = Q(company.CompanyCode, false), account = Q(company.AccountType, false), type = Q(company.OverseasType, false);
+            string currency = Q(company.Currency, false), memo = Q(company.Memo);
+            s.AppendLine("    -- 公司关系与科目关系使用同一最终映射类型，并在同一事务内导入。");
+            s.AppendLine("    DECLARE @companyInserted int = 0;");
+            s.AppendLine("    DECLARE @CompanyExisting TABLE ([OverseasType] varchar(50),[LanguageType] varchar(50),[Memo] nvarchar(400),[IsRoundOff] tinyint);");
+            s.AppendLine("    INSERT INTO @CompanyExisting SELECT [OverseasType],[LanguageType],[Memo],[IsRoundOff] FROM [dbo].[VoucherCompanyRelation] WITH (UPDLOCK,HOLDLOCK)");
+            s.AppendLine("    WHERE [CompanyCode]=" + code + " AND [AccountType]=" + account + " AND [IsDeleted]=0;");
+            s.AppendLine("    IF (SELECT COUNT_BIG(*) FROM @CompanyExisting)>1");
+            s.AppendLine("        THROW 50006, N'公司编码和账套已有多条有效关系，请核实重复数据。', 1;");
+            s.AppendLine("    IF EXISTS (SELECT 1 FROM @CompanyExisting WHERE [OverseasType] IS NULL OR CONVERT(varbinary(max),[OverseasType])<>CONVERT(varbinary(max)," + type + ")" +
+                " OR [LanguageType] IS NULL OR CONVERT(varbinary(max),[LanguageType])<>CONVERT(varbinary(max)," + currency + ")" +
+                " OR [Memo] IS NULL OR CONVERT(varbinary(max),[Memo])<>CONVERT(varbinary(max)," + memo + ") OR [IsRoundOff] IS NULL OR [IsRoundOff]<>0)");
+            s.AppendLine("        THROW 50007, N'公司编码和账套已有不同的映射类型、币制、备注或舍入设置，已回滚，请人工核实。', 1;");
+            s.AppendLine("    IF NOT EXISTS (SELECT 1 FROM @CompanyExisting)\r\n    BEGIN");
+            s.AppendLine("        INSERT INTO [dbo].[VoucherCompanyRelation] ([CompanyCode],[AccountType],[OverseasType],[LanguageType],[Memo],[IsRoundOff])");
+            s.AppendLine("        VALUES (" + string.Join(",", new[] { code, account, type, currency, memo, "0" }) + ");");
+            s.AppendLine("        SET @companyInserted = 1;\r\n    END;");
         }
     }
 }

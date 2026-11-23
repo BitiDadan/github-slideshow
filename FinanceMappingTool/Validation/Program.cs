@@ -66,6 +66,7 @@ class SqlGenerationChecks
         ExcelImportChecks.Run();
         ExcelReportChecks.Run();
         CustomerReferenceFileChecks.Run();
+        CompanyExportChecks.Run();
         if (args.Length > 0) Parse(File.ReadAllText(args[0]), "diagnostic script");
         Console.WriteLine("Generation and parser checks only; no SQL Server was executed.");
     }
