@@ -38,7 +38,7 @@ namespace FinanceMappingTool
 
         public MainForm()
         {
-            Text = "财务科目对照导入工具 v1.4.0";
+            Text = "财务科目对照导入工具 v1.4.1";
             Font = new Font("Microsoft YaHei UI", 9F);
             StartPosition = FormStartPosition.CenterScreen;
             Size = new Size(1180, 780);
@@ -216,7 +216,7 @@ namespace FinanceMappingTool
                 if (dialog.ShowDialog(this) != DialogResult.OK) return;
                 File.WriteAllText(dialog.FileName, sql, new UTF8Encoding(true));
                 status.Text = "已导出 " + rows.Count + " 条映射：" + dialog.FileName;
-                MessageBox.Show(this, "SQL 已保存。" + (company.HasCompany ? "已包含公司关系SQL，最终映射类型为“" + company.OverseasType + "”。" : "公司编码为空，本次仅生成科目关系SQL。") + "\r\n请在 SSMS 中确认目标数据库后执行。本次未执行数据库写入。", "导出完成");
+                MessageBox.Show(this, "SQL 已保存。" + (company.HasCompany ? "已包含凭证公司、凭证类型及科目SQL，最终映射类型为“" + company.OverseasType + "”。" : "公司编码为空，本次生成凭证类型及科目关系SQL。") + "\r\n请在 SSMS 中确认目标数据库后执行。本次未执行数据库写入。", "导出完成");
             }
         }
         private void CommitPreview()

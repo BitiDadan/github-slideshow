@@ -28,7 +28,7 @@ class SqlGenerationChecks
             Check(sql.Contains("N'测试''名称'") && sql.Contains("USE [Demo]]DB]"), "Unicode and identifier escaping");
             int batches = sql.Split(new[] { "INSERT INTO @Import" }, StringSplitOptions.None).Length - 1;
             Check(batches == (count + 999) / 1000, "VALUES batch limit");
-            Check(sql.Split(new[] { "WITH (UPDLOCK,HOLDLOCK)" }, StringSplitOptions.None).Length == 2, "one target snapshot statement");
+            Check(sql.Split(new[] { "FROM [dbo].[VoucherFeeRelation] AS t WITH (UPDLOCK,HOLDLOCK)" }, StringSplitOptions.None).Length == 2, "one fee mapping snapshot statement");
             Check(sql.Contains("IF @@TRANCOUNT <> 0") && sql.Contains("SET LOCK_TIMEOUT 10000"), "transaction preflight and bounded lock wait");
             Check(sql.Contains("@expected int = (SELECT COUNT(*) FROM @Import)"), "actual input count");
             // ScriptDom accepts SET LOCK_TIMEOUT variables that the server rejects: explicit regression guard.
@@ -67,6 +67,7 @@ class SqlGenerationChecks
         ExcelReportChecks.Run();
         CustomerReferenceFileChecks.Run();
         CompanyExportChecks.Run();
+        VoucherTypeChecks.Run();
         if (args.Length > 0) Parse(File.ReadAllText(args[0]), "diagnostic script");
         Console.WriteLine("Generation and parser checks only; no SQL Server was executed.");
     }

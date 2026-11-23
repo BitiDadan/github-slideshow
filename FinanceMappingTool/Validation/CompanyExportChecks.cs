@@ -30,7 +30,7 @@ static class CompanyExportChecks
             Parse(MappingEngine.Sql(two,"DemoDB",new CompanyExportOptions("KDVoucher02","000123","Demo","CNY")));
             var noCompany=new CompanyExportOptions("KDVoucher","","","VND");
             string legacy=MappingEngine.Sql(seed,"DemoDB",noCompany);Parse(legacy);
-            Check(noCompany.OverseasType=="KDVoucher" && !legacy.Contains("VoucherCompanyRelation"),"empty company code retains original subject-only export");
+            Check(noCompany.OverseasType=="KDVoucher" && !legacy.Contains("VoucherCompanyRelation"),"empty company code skips company relation and retains subject export");
             Invalid(()=>MappingEngine.Sql(seed,"DemoDB",company),"mismatched subject/company types block export");
             Invalid(()=>new CompanyExportOptions("Demo","123456789012345678","Demo","VND").Validate(),"AccountType length includes @01 suffix");
             Invalid(()=>CompanyExportOptions.ComposeMappingType(new string('A',45),"123456"),"combined mapping type length enforced");

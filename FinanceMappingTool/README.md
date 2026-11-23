@@ -1,10 +1,10 @@
-# 财务科目对照导入工具 v1.4.0
+# 财务科目对照导入工具 v1.4.1
 
 C# / WinForms / .NET Framework 4.8。读取 Excel 科目对照表，预览后生成 SQL Server 2014 兼容的 INSERT 脚本，或导出一个含两个工作表的 Excel 报告。不依赖安装 Office。完全离线运行。Excel报告导出会读取程序目录的“当前主数据.xlsx”作为客户/供应商类型参照，不连接数据库。
 
 ## 下载运行
 
-打开本目录 `Downloads/FinanceMappingTool-v1.4.0.zip`，点击 GitHub 的 **Download raw file** 下载完整包。完整解压后进入 `Program`，双击 `FinanceMappingTool.exe`。EXE、DLL、配置文件必须放在同一目录。
+打开本目录 `Downloads/FinanceMappingTool-v1.4.1.zip`，点击 GitHub 的 **Download raw file** 下载完整包。完整解压后进入 `Program`，双击 `FinanceMappingTool.exe`。EXE、DLL、配置文件必须放在同一目录。
 
 需要 Windows 和 .NET Framework 4.8。无需安装 Python、.NET 8 或 VS 即可运行。
 
@@ -32,7 +32,7 @@ KDVoucher及其他自定义映射类型使用Excel对应关系；仅完整输入
 
 ## 公司信息与公司关系SQL（v1.4.0）
 
-界面第二行从左到右为“公司编码”“公司名称”“币制”，币制默认VND。原“映射类型”文本框只输入基础名称，最终类型为“基础映射类型＋公司编码”，不插入分隔符。公司编码为空时保留基础名称，SQL只生成科目关系，不生成公司关系。
+界面第二行从左到右为“公司编码”“公司名称”“币制”，币制默认VND。原“映射类型”文本框只输入基础名称，最终类型为“基础映射类型＋公司编码”，不插入分隔符。公司编码为空时保留基础名称，跳过公司关系，但仍生成凭证类型和科目关系。
 
 公司编码非空时，在同一SQL文件中增加VoucherCompanyRelation导入：
 
@@ -47,11 +47,23 @@ KDVoucher及其他自定义映射类型使用Excel对应关系；仅完整输入
 
 例如虚构编码000123、基础类型DemoType会得到DemoType000123和000123@01。输入基础类型时不要预先追加公司编码，否则会再次拼接。
 
-公司关系和科目关系在同一个事务内执行；公司编码＋账套的有效关系已存在且内容相同则跳过，存在多条或内容不同则报错整体回滚，不自动覆盖。CreateDate和IsDeleted使用提供的表默认值。目标库需同时有两张表。
+凭证公司、凭证类型和科目关系在同一个事务内执行；公司编码＋账套的有效关系已存在且内容相同则跳过，存在多条或内容不同则报错整体回滚，不自动覆盖。CreateDate和IsDeleted使用提供的表默认值。目标库需存在VoucherCompanyRelation（公司编码非空时）、VoucherTypeRelation和VoucherFeeRelation。
 
 长度限制遵循表结构：AccountType最长20字符，因此公司编码最多17字符；最终映射类型最多50字符；[公司编码]公司名称合计最多400个UTF-16字符。编码、基础类型和币制使用可打印ASCII字符，公司名称支持中文等Unicode。公司编码非空时币制不能为空。
 
 Excel报告不增加额外的公司信息列，仍按预览列头导出；其中映射类型已经是拼接后的最终值。参照主数据的异常检查规则不变。
+
+## 凭证类型及SQL顺序（v1.4.1）
+
+生成的SQL按以下注释区块从上到下排列，凭证公司和凭证类型的业务插入也在科目暂存数据之前：
+
+1. `-- 凭证公司`：生成VoucherCompanyRelation语句；公司编码为空则保留注释并跳过此表。
+2. `-- 凭证类型`：针对最终映射类型生成9条VoucherTypeRelation语句，固定依次为A、B、C、D、E、F、G、H、01。NCCVoucherType和OverseasVoucherType取同一个字符串，Memo为''。01始终带引号，保留前导零。
+3. `-- 科目`：暂存并检查本次科目数据，再插入VoucherFeeRelation。
+
+三类关系使用相同的“基础映射类型＋公司编码”。公司编码为空时仍为基础映射类型，并生成对应的9种凭证类型。公司、类型、科目共同提交或回滚；不会单独提交前两个区块。
+
+凭证类型重复部署时，按OverseasType＋NCCVoucherType查找已有记录，正确的相同代码映射跳过，保留其既有Memo，不覆盖；发现重复关系或国内/海外类型对应不同则报错回滚。查询仅使用提供的NCCVoucherType、OverseasVoucherType、OverseasType列，不假设该表还有ID或IsDeleted列。新增数据严格使用给定的四列插入模板。结果集增加“凭证类型新增条数”。
 
 ## Excel导出与异常检查（v1.3.1）
 
