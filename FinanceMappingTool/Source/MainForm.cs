@@ -20,7 +20,7 @@ namespace FinanceMappingTool
         private readonly TextBox companyCode = new TextBox { Width = 130, MaxLength = 17 };
         private readonly TextBox companyName = new TextBox { Width = 340, MaxLength = 400 };
         private readonly TextBox currency = new TextBox { Text = "VND", Width = 80, MaxLength = 50 };
-        private readonly TextBox finalType = new TextBox { Text = "KDVoucher", ReadOnly = true, TabStop = false, Width = 220 };
+        private readonly TextBox finalType = new TextBox { Text = "KDVoucherVND", ReadOnly = true, TabStop = false, Width = 220 };
         private readonly Button load = new Button { Text = "选择并读取 Excel", AutoSize = true };
         private readonly Button export = new Button { Text = "导出 SQL", AutoSize = true, Enabled = false };
         private readonly Button exportExcel = new Button { Text = "导出 Excel", AutoSize = true, Enabled = false };
@@ -38,7 +38,7 @@ namespace FinanceMappingTool
 
         public MainForm()
         {
-            Text = "财务科目对照导入工具 v1.4.2";
+            Text = "财务科目对照导入工具 v1.5.0";
             Font = new Font("Microsoft YaHei UI", 9F);
             StartPosition = FormStartPosition.CenterScreen;
             Size = new Size(1180, 780);
@@ -68,7 +68,7 @@ namespace FinanceMappingTool
             previewPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             previewPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             previewPanel.Controls.Add(new Label { AutoSize = true, MaximumSize = new Size(1080, 0), Text =
-                "可双击修改映射和属性；切换映射类型或重新读取会重置手工修改。CustomerType：资产=1，其余=2；不执行原脚本 UPDATE。\r\n02账套：默认国内编码/名称直接对应；具体业务例外需自行配置，本公开包不含原始业务数据。" }, 0, 0);
+                "可双击修改映射和属性；切换映射类型或重新读取会重置手工修改。CustomerType：资产=1，其余=2；不执行原脚本 UPDATE。\r\n预览及Excel为主账簿；SQL同时生成副账簿，副账簿只将映射类型追加02。基础类型为KDVoucher02时仍应用原有02转换。" }, 0, 0);
             previewPanel.Controls.Add(grid, 0, 1);
             panel.Controls.Add(files, 0, 0); panel.Controls.Add(companies, 0, 1); panel.Controls.Add(options, 0, 2); panel.Controls.Add(previewPanel, 0, 3);
             panel.Controls.Add(status, 0, 4); panel.Controls.Add(log, 0, 5);
@@ -83,12 +83,12 @@ namespace FinanceMappingTool
             {
                 UpdateFinalTypeDisplay();
                 if (source == null) return;
-                export.Enabled = exportExcel.Enabled = !string.IsNullOrWhiteSpace(type.Text);
-                status.Text = export.Enabled ? "映射类型或公司编码已修改，离开输入框后更新预览。" : "请输入映射类型。";
+                export.Enabled = exportExcel.Enabled = !string.IsNullOrWhiteSpace(type.Text) && !string.IsNullOrWhiteSpace(currency.Text);
+                status.Text = export.Enabled ? "映射类型或币制已修改，离开输入框后更新预览。" : "请输入映射类型和币制。";
             };
-            type.TextChanged += changed; companyCode.TextChanged += changed;
-            EventHandler leave = (s, e) => { if (source != null && !string.IsNullOrWhiteSpace(type.Text)) TryAction(ApplyMappingInputs); };
-            type.Leave += leave; companyCode.Leave += leave;
+            type.TextChanged += changed; currency.TextChanged += changed;
+            EventHandler leave = (s, e) => { if (source != null && !string.IsNullOrWhiteSpace(type.Text) && !string.IsNullOrWhiteSpace(currency.Text)) TryAction(ApplyMappingInputs); };
+            type.Leave += leave; currency.Leave += leave;
             export.Click += (s, e) => TryAction(ExportSql);
             exportExcel.Click += async (s, e) => await ExportExcelAsync();
             saveLog.Click += (s, e) => TryAction(SaveLog);
@@ -173,8 +173,8 @@ namespace FinanceMappingTool
         }
         private void UpdateFinalTypeDisplay()
         {
-            finalType.Text = type.Text.Trim() + companyCode.Text.Trim();
-            try { CompanyExportOptions.ComposeMappingType(type.Text, companyCode.Text); finalType.ForeColor = SystemColors.WindowText; }
+            finalType.Text = type.Text.Trim() + currency.Text.Trim();
+            try { CompanyExportOptions.ComposeSecondaryMappingType(CompanyExportOptions.ComposeMappingType(type.Text, currency.Text)); finalType.ForeColor = SystemColors.WindowText; }
             catch (InvalidDataException) { finalType.ForeColor = Color.Firebrick; }
         }
 
@@ -182,7 +182,8 @@ namespace FinanceMappingTool
         {
             export.Enabled = exportExcel.Enabled = false;
             string baseType = type.Text.Trim();
-            string effectiveType = CompanyExportOptions.ComposeMappingType(baseType, companyCode.Text);
+            string effectiveType = CompanyExportOptions.ComposeMappingType(baseType, currency.Text);
+            CompanyExportOptions.ComposeSecondaryMappingType(effectiveType);
             if (preview == null || previewBaseType != baseType) { RefreshPreview(); return; }
             if (previewType != effectiveType)
             {
@@ -198,7 +199,8 @@ namespace FinanceMappingTool
         {
             export.Enabled = exportExcel.Enabled = false;
             var mappingType = type.Text.Trim();
-            var rows = MappingEngine.ForType(source, mappingType, ruleFile, companyCode.Text);
+            CompanyExportOptions.ComposeSecondaryMappingType(CompanyExportOptions.ComposeMappingType(mappingType, currency.Text));
+            var rows = MappingEngine.ForType(source, mappingType, ruleFile, currency.Text);
             preview = new BindingList<MappingRow>(rows); grid.DataSource = preview;
             previewBaseType = mappingType; previewType = rows[0].OverseasType;
             status.Text = "当前预览：" + previewType + "，" + rows.Count + " 条。请检查映射和下方日志后导出。";
@@ -215,8 +217,8 @@ namespace FinanceMappingTool
             {
                 if (dialog.ShowDialog(this) != DialogResult.OK) return;
                 File.WriteAllText(dialog.FileName, sql, new UTF8Encoding(true));
-                status.Text = "已导出 " + rows.Count + " 条映射：" + dialog.FileName;
-                MessageBox.Show(this, "SQL 已保存。" + (company.HasCompany ? "已包含凭证公司、凭证类型及科目SQL。凭证公司的OverseasType分别为“" + string.Join("”、“", company.AccountTypes.Select(a => company.GetCompanyOverseasType(a))) + "”；科目及凭证类型仍为“" + company.OverseasType + "”。" : "公司编码为空，本次生成凭证类型及科目关系SQL。") + "\r\n请在 SSMS 中确认目标数据库后执行。本次未执行数据库写入。", "导出完成");
+                status.Text = "已导出主、副账簿共 " + (rows.Count * 2) + " 条科目映射：" + dialog.FileName;
+                MessageBox.Show(this, "SQL 已保存。主账簿映射类型为“" + company.OverseasType + "”，副账簿为“" + company.SecondaryOverseasType + "”。两套凭证类型和科目数据已生成。" + (company.HasCompany ? "已包含两条凭证公司关系。" : "公司编码为空，已跳过凭证公司关系。") + "\r\n请在SSMS中确认目标数据库后执行。本次未执行数据库写入。", "导出完成");
             }
         }
         private void CommitPreview()
@@ -240,7 +242,7 @@ namespace FinanceMappingTool
             load.Enabled = !busy; grid.Enabled = !busy; type.ReadOnly = busy;
             sheet.ReadOnly = busy; header.Enabled = !busy; database.ReadOnly = busy;
             companyCode.ReadOnly = companyName.ReadOnly = currency.ReadOnly = busy;
-            export.Enabled = exportExcel.Enabled = !busy && preview != null && !string.IsNullOrWhiteSpace(type.Text);
+            export.Enabled = exportExcel.Enabled = !busy && preview != null && !string.IsNullOrWhiteSpace(type.Text) && !string.IsNullOrWhiteSpace(currency.Text);
             UseWaitCursor = busy;
         }
 

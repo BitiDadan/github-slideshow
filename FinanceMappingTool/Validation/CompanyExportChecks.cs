@@ -16,15 +16,15 @@ static class CompanyExportChecks
         {
             var seed=new List<MappingRow>{new MappingRow{ExcelRow=2,FeeNo="0001",FeeName="国内名称",FeeNoOverseas="F001",FeeNameOverseas="Foreign",OverseasType="KDVoucher",Memo="",CustomerType="1",CreditDebitType=""}};
             var company=new CompanyExportOptions(" KDVoucher "," 000123 ","演示公司 O'Brien"," VND ");company.Validate();
-            Check(company.OverseasType=="KDVoucher000123" && company.AccountTypes.SequenceEqual(new[]{"000123@01","000123@02"}) && company.Memo=="[000123]演示公司 O'Brien","company code leading zero, suffix and memo composition");
-            var rows=MappingEngine.ForType(seed,"KDVoucher",rule,company.CompanyCode);
-            Check(rows[0].OverseasType==company.OverseasType && seed[0].OverseasType=="KDVoucher","subject effective mapping type stays base plus company code without mutating source");
+            Check(company.OverseasType=="KDVoucherVND" && company.AccountTypes.SequenceEqual(new[]{"000123@01","000123@02"}) && company.Memo=="[000123]演示公司 O'Brien","company code leading zero, suffix and memo composition");
+            var rows=MappingEngine.ForType(seed,"KDVoucher",rule,company.Currency);
+            Check(rows[0].OverseasType==company.OverseasType && seed[0].OverseasType=="KDVoucher","subject effective mapping type follows base plus currency without mutating source");
             string sql=MappingEngine.Sql(rows,"DemoDB",company);Parse(sql);
             Check(company.GetCompanyOverseasType("000123@01")=="KDVoucherVND" && company.GetCompanyOverseasType("000123@02")=="KDVoucherVND02","company OverseasType uses currency and adds 02 only for second account");
             foreach(string account in new[]{"000123@01","000123@02"})
                 Check(sql.Contains("VALUES ('000123','"+account+"','"+company.GetCompanyOverseasType(account)+"','VND',N'[000123]演示公司 O''Brien',0);"),"company tuple changes only account and OverseasType: "+account);
             Check(sql.Contains("WHEN '000123@01' THEN 'KDVoucherVND'") && sql.Contains("WHEN '000123@02' THEN 'KDVoucherVND02'"),"existing company checks use per-account expected OverseasType");
-            Check(rows[0].OverseasType=="KDVoucher000123" && sql.Contains("VALUES ('A','A','KDVoucher000123','');"),"subject and nine voucher types retain base plus company code");
+            Check(rows[0].OverseasType=="KDVoucherVND" && sql.Contains("VALUES ('A','A','KDVoucherVND','');") && sql.Contains("VALUES ('A','A','KDVoucherVND02','');"),"subject and voucher types use currency-based main and secondary ledgers");
             Check(sql.Split(new[]{"INSERT INTO [dbo].[VoucherCompanyRelation]"},StringSplitOptions.None).Length==3,"exactly two company INSERT statements");
             Check(sql.Contains("GROUP BY [AccountType] HAVING COUNT_BIG(*)>1") &&
                 sql.Contains("IF NOT EXISTS (SELECT 1 FROM @CompanyExisting WHERE [AccountType]='000123@01')") &&
@@ -34,25 +34,28 @@ static class CompanyExportChecks
             int transaction=sql.IndexOf("BEGIN TRANSACTION",StringComparison.Ordinal), companyInsert=sql.IndexOf("INSERT INTO [dbo].[VoucherCompanyRelation]",StringComparison.Ordinal);
             Check(transaction<companyInsert && companyInsert<sql.IndexOf("COMMIT TRANSACTION",StringComparison.Ordinal) && sql.Contains("ROLLBACK TRANSACTION"),"company and subject imports share transaction rollback");
             Check(sql.Contains("@companyInserted AS [公司关系新增条数]"),"company insert count included");
-            var two=MappingEngine.ForType(seed,"KDVoucher02",rule,"000123");
-            Check(two[0].FeeNoOverseas=="0001" && two[0].OverseasType=="KDVoucher02000123" && two[0].Memo=="02账套","02 conversion follows base type before company suffix is appended");
+            var two=MappingEngine.ForType(seed,"KDVoucher02",rule,"CNY");
+            Check(two[0].FeeNoOverseas=="0001" && two[0].OverseasType=="KDVoucher02CNY" && two[0].Memo=="02账套","explicit legacy 02 conversion follows base type before currency is appended");
             Parse(MappingEngine.Sql(two,"DemoDB",new CompanyExportOptions("KDVoucher02","000123","Demo","CNY")));
             var noCompany=new CompanyExportOptions("KDVoucher","","","VND");
-            string legacy=MappingEngine.Sql(seed,"DemoDB",noCompany);Parse(legacy);
-            Check(noCompany.OverseasType=="KDVoucher" && !legacy.Contains("VoucherCompanyRelation"),"empty company code skips company relation and retains subject export");
-            Invalid(()=>MappingEngine.Sql(seed,"DemoDB",company),"subject type inconsistent with its base and company code blocks export");
+            string legacy=MappingEngine.Sql(MappingEngine.ForType(seed,"KDVoucher",rule,"VND"),"DemoDB",noCompany);Parse(legacy);
+            Check(noCompany.OverseasType=="KDVoucherVND" && !legacy.Contains("VoucherCompanyRelation"),"empty company code skips company relation and retains subject export");
+            Invalid(()=>MappingEngine.Sql(seed,"DemoDB",company),"subject type inconsistent with its base and currency blocks export");
             Invalid(()=>new CompanyExportOptions("Demo","123456789012345678","Demo","VND").Validate(),"AccountType length includes @01/@02 suffix");
             Invalid(()=>CompanyExportOptions.ComposeMappingType(new string('A',45),"123456"),"combined mapping type length enforced");
             Invalid(()=>new CompanyExportOptions("Demo","001",new string('名',400),"VND").Validate(),"company Memo field length includes prefix");
             Invalid(()=>new CompanyExportOptions("Demo","001","Demo","").Validate(),"company currency required");
-            Invalid(()=>CompanyExportOptions.ComposeMappingType("Demo","中文"),"varchar company code rejects unsupported characters");
+            Invalid(()=>CompanyExportOptions.ComposeMappingType("Demo","中文"),"currency rejects unsupported characters");
             var aud=new CompanyExportOptions("KDVoucher","000123","Demo","AUD");aud.Validate();
+            Check(aud.OverseasType=="KDVoucherAUD" && aud.SecondaryOverseasType=="KDVoucherAUD02", "UI mapping types use currency and fixed secondary suffix");
+            Check(new CompanyExportOptions("KDVoucher","999","Demo","AUD").OverseasType==aud.OverseasType,"changing company code does not change mapping type");
+            Invalid(()=>new CompanyExportOptions("Demo","","","").Validate(),"currency required even with no company code");
             Check(aud.GetCompanyOverseasType("000123@01")=="KDVoucherAUD" && aud.GetCompanyOverseasType("000123@02")=="KDVoucherAUD02","AUD company mappings match requested rule");
             Invalid(()=>aud.GetCompanyOverseasType("000123@03"),"unexpected company account rejected");
             new CompanyExportOptions(new string('A',45),"1","Demo","VND").Validate();
             Invalid(()=>new CompanyExportOptions(new string('A',46),"1","Demo","VND").Validate(),"company type length includes currency and second-account 02 suffix");
             var quote=new CompanyExportOptions("Demo","A'1","中文'名称","VND");
-            string escaped=MappingEngine.Sql(MappingEngine.ForType(seed,"Demo",rule,"A'1"),"DemoDB",quote);Parse(escaped);
+            string escaped=MappingEngine.Sql(MappingEngine.ForType(seed,"Demo",rule,"VND"),"DemoDB",quote);Parse(escaped);
             Check(escaped.Contains("'A''1@01'") && escaped.Contains("'A''1@02'") && escaped.Contains("N'[A''1]中文''名称'"),"all company inputs SQL-escaped");
         }
         finally{File.Delete(rule);}

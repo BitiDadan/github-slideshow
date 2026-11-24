@@ -20,14 +20,15 @@ static class VoucherTypeChecks
         Check(sql.IndexOf("RAISERROR(N'导入会话 SPID=",StringComparison.Ordinal)<sql.IndexOf("INSERT INTO @CompanyExisting",StringComparison.Ordinal),"session diagnostic printed before new database reads");
         Check(companyInsert<typeInsert && sql.LastIndexOf("INSERT INTO [dbo].[VoucherCompanyRelation]",StringComparison.Ordinal)<typeInsert && typeInsert<sql.IndexOf("INSERT INTO @Import",StringComparison.Ordinal) && typeInsert<feeInsert,"company and types appear before even subject staging data");
         Check(sql.IndexOf("BEGIN TRANSACTION",StringComparison.Ordinal)<companyInsert && feeInsert<sql.IndexOf("COMMIT TRANSACTION",StringComparison.Ordinal),"three business tables share transaction");
-        Check(sql.Split(new[]{"INSERT INTO [dbo].[VoucherTypeRelation]"},StringSplitOptions.None).Length==10,"exactly nine explicit voucher type inserts");
+        Check(sql.Split(new[]{"INSERT INTO [dbo].[VoucherTypeRelation]"},StringSplitOptions.None).Length==19,"eighteen voucher type inserts for two ledgers");
         int previous=-1;
-        foreach(string code in codes)
-        {
-            string tuple="VALUES ('"+code+"','"+code+"','DemoType000123','');";
-            int at=sql.IndexOf(tuple,StringComparison.Ordinal);Check(at>previous,"voucher type pair and ordering: "+code);previous=at;
-        }
-        Check(sql.Contains("VALUES ('01','01','DemoType000123','');"),"01 remains text with leading zero");
+        foreach(string mapping in new[]{"DemoTypeAUD","DemoTypeAUD02"})
+            foreach(string code in codes)
+            {
+                string tuple="VALUES ('"+code+"','"+code+"','"+mapping+"','');";
+                int at=sql.IndexOf(tuple,StringComparison.Ordinal);Check(at>previous,"voucher type pair and ordering: "+mapping+"/"+code);previous=at;
+            }
+        Check(sql.Contains("'01','01'"),"01 remains text with leading zero");
         string typeBlock=sql.Substring(second,third-second);
         Check(!sql.Contains("@VoucherTypeExisting") && !sql.Contains("FROM [dbo].[VoucherTypeRelation]") && !sql.Contains("THROW 50008") && !sql.Contains("THROW 50009"),"voucher types do not query or validate existing database rows");
         Check(!typeBlock.Contains("IF ") && !typeBlock.Contains("SELECT ") && !typeBlock.Contains("EXISTS"),"all nine voucher type statements are unconditional direct inserts");

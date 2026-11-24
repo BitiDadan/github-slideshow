@@ -114,10 +114,11 @@ namespace FinanceMappingTool
             return result;
         }
 
-        public static List<MappingRow> ForType(IEnumerable<MappingRow> source, string type, string ruleFile, string companyCode = "")
+        public static List<MappingRow> ForType(IEnumerable<MappingRow> source, string type, string ruleFile, string currency = "")
         {
             type = (type ?? "").Trim();
-            string finalType = CompanyExportOptions.ComposeMappingType(type, companyCode);
+            Check(type, 50, true, true, "映射类型");
+            string finalType = string.IsNullOrWhiteSpace(currency) ? type : CompanyExportOptions.ComposeMappingType(type, currency);
             var root = XDocument.Load(ruleFile).Root;
             var rows = source.Select(x => x.Copy()).ToList();
             foreach (var row in rows)
@@ -138,6 +139,17 @@ namespace FinanceMappingTool
             }
             Validate(rows);
             return rows;
+        }
+
+        public static List<MappingRow> ForLedgers(IList<MappingRow> primaryRows, string primaryType)
+        {
+            Validate(primaryRows);
+            string secondary = CompanyExportOptions.ComposeSecondaryMappingType(primaryType);
+            if (primaryRows.Any(r => r.OverseasType != primaryType))
+                throw new InvalidDataException("主账簿预览的映射类型与UI最终映射类型不一致，请刷新预览后重试。");
+            var result = primaryRows.Select(r => r.Copy()).ToList();
+            result.AddRange(primaryRows.Select(r => { var copy = r.Copy(); copy.OverseasType = secondary; return copy; }));
+            Validate(result); return result;
         }
 
         public static void Validate(IList<MappingRow> rows)
@@ -181,15 +193,14 @@ namespace FinanceMappingTool
             if (company != null)
             {
                 company.Validate();
-                if (rows.Any(r => r.OverseasType != company.OverseasType))
-                    throw new InvalidDataException("科目映射类型与当前基础类型及公司编码不一致，请刷新预览后重试。");
+                rows = ForLedgers(rows, company.OverseasType);
             }
             if (string.IsNullOrWhiteSpace(database) || database.Length > 128 || database.Any(char.IsControl))
                 throw new InvalidDataException("请填写有效的目标数据库名称（最多128字符）。");
             var s = new StringBuilder();
             const string columns = "[FeeNo],[FeeName],[FeeNoOverseas],[FeeNameOverseas],[OverseasType],[Memo],[CustomerType],[CreditDebitType]";
             const string definition = "[FeeNo] varchar(20),[FeeName] nvarchar(400),[FeeNoOverseas] varchar(20),[FeeNameOverseas] nvarchar(400),[OverseasType] varchar(50),[Memo] nvarchar(400),[CustomerType] tinyint,[CreditDebitType] tinyint";
-            s.AppendLine("-- 财务科目映射导入 v1.4.2；仅 INSERT，不包含后期 UPDATE。");
+            s.AppendLine("-- 财务科目映射导入 v1.5.0；仅 INSERT，不包含后期 UPDATE。");
             s.AppendLine("-- 批量读取目标映射一次；相同内容跳过，冲突或重复则回滚。默认锁等待10秒；已有有限会话超时则沿用。");
             s.AppendLine("-- 手动取消后，请在原窗口检查 SELECT @@SPID, @@TRANCOUNT, XACT_STATE(); 注意客户端取消不一定进入 CATCH。");
             s.AppendLine("USE [" + database.Replace("]", "]]") + "];\r\nGO\r\nSET NOCOUNT ON;");
@@ -198,11 +209,12 @@ namespace FinanceMappingTool
             s.AppendLine("DECLARE @previousXactAbort bit = CASE WHEN (@@OPTIONS & 16384) = 16384 THEN 1 ELSE 0 END;");
             s.AppendLine("BEGIN TRY\r\n    IF @previousLockTimeout=-1 SET LOCK_TIMEOUT 10000;\r\n    SET XACT_ABORT ON;");
             s.AppendLine("    DECLARE @sessionId int = @@SPID, @effectiveLockTimeout int = @@LOCK_TIMEOUT;");
-            s.AppendLine("    RAISERROR(N'导入会话 SPID=%d，正在处理凭证公司、凭证类型和科目；锁等待超时设置%d毫秒。', 10, 1, @sessionId, @effectiveLockTimeout) WITH NOWAIT;");
+            s.AppendLine("    RAISERROR(N'导入会话 SPID=%d，正在处理凭证公司、凭证类型、现金流/摘要和科目；锁等待超时设置%d毫秒。', 10, 1, @sessionId, @effectiveLockTimeout) WITH NOWAIT;");
             s.AppendLine("    BEGIN TRANSACTION;");
             if (company != null && company.HasCompany) AppendCompanyRelation(s, company);
             else s.AppendLine("    -- 凭证公司\r\n    -- 公司编码为空，跳过公司关系。");
             AppendVoucherTypeRelations(s, rows.Select(r => r.OverseasType));
+            if (company != null) s.AppendLine(CashFlowTemplate.Render(company.OverseasType, company.SecondaryOverseasType, company.Currency));
             s.AppendLine("    -- 科目");
             s.AppendLine("    -- 第一部分：本次待导入数据（仅暂存，不写入业务表）。");
             s.AppendLine("    DECLARE @Import TABLE ([ExcelRow] int," + definition + ", PRIMARY KEY ([OverseasType],[FeeNo]));");

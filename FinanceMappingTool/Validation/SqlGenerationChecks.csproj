@@ -3,6 +3,8 @@
   <ItemGroup>
     <Compile Include="../Source/Mapping.cs" Link="Mapping.cs" />
     <Compile Include="../Source/CompanyExportOptions.cs" Link="CompanyExportOptions.cs" />
+    <Compile Include="../Source/CashFlowTemplate.cs" Link="CashFlowTemplate.cs" />
+    <EmbeddedResource Include="../Source/cash-flow-template.sql" LogicalName="FinanceMappingTool.cash-flow-template.sql" />
     <Compile Include="../Source/ExcelImport.cs" Link="ExcelImport.cs" />
     <Compile Include="../Source/ExcelReport.cs" Link="ExcelReport.cs" />
     <Compile Include="../Source/CustomerReferenceReader.cs" Link="CustomerReferenceReader.cs" />
