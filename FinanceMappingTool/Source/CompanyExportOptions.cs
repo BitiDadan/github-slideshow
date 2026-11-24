@@ -14,7 +14,11 @@ namespace FinanceMappingTool
         public bool HasCompany => CompanyCode.Length > 0;
         public string OverseasType => ComposeMappingType(BaseMappingType, Currency);
         public string SecondaryOverseasType => ComposeSecondaryMappingType(OverseasType);
-        public IReadOnlyList<string> AccountTypes => new[] { CompanyCode + "@01", CompanyCode + "@02" };
+        public string AccountCompanyCode
+        {
+            get { string value = CompanyCode.TrimStart('0'); return HasCompany && value.Length == 0 ? "0" : value; }
+        }
+        public IReadOnlyList<string> AccountTypes => new[] { AccountCompanyCode + "@01", AccountCompanyCode + "@02" };
         public string Memo => "[" + CompanyCode + "]" + CompanyName;
         public CompanyExportOptions(string mappingType, string code, string name, string currency)
         { BaseMappingType = (mappingType ?? "").Trim(); CompanyCode = (code ?? "").Trim(); CompanyName = (name ?? "").Trim(); Currency = (currency ?? "").Trim(); }
@@ -36,9 +40,9 @@ namespace FinanceMappingTool
         private bool IsSecondaryAccount(string accountType)
         {
             Check(CompanyCode, 17, true, true, "公司编码");
-            if (accountType == CompanyCode + "@01") return false;
-            if (accountType == CompanyCode + "@02") return true;
-            throw new InvalidDataException("公司账套必须是当前公司编码加@01或@02。");
+            if (accountType == AccountCompanyCode + "@01") return false;
+            if (accountType == AccountCompanyCode + "@02") return true;
+            throw new InvalidDataException("公司账套必须是去除公司编码前导零后加@01或@02。");
         }
         public void Validate()
         {
