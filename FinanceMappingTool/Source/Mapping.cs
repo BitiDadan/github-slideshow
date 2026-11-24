@@ -182,14 +182,14 @@ namespace FinanceMappingTool
             {
                 company.Validate();
                 if (rows.Any(r => r.OverseasType != company.OverseasType))
-                    throw new InvalidDataException("科目关系与公司关系的最终映射类型不一致，请刷新预览后重试。");
+                    throw new InvalidDataException("科目映射类型与当前基础类型及公司编码不一致，请刷新预览后重试。");
             }
             if (string.IsNullOrWhiteSpace(database) || database.Length > 128 || database.Any(char.IsControl))
                 throw new InvalidDataException("请填写有效的目标数据库名称（最多128字符）。");
             var s = new StringBuilder();
             const string columns = "[FeeNo],[FeeName],[FeeNoOverseas],[FeeNameOverseas],[OverseasType],[Memo],[CustomerType],[CreditDebitType]";
             const string definition = "[FeeNo] varchar(20),[FeeName] nvarchar(400),[FeeNoOverseas] varchar(20),[FeeNameOverseas] nvarchar(400),[OverseasType] varchar(50),[Memo] nvarchar(400),[CustomerType] tinyint,[CreditDebitType] tinyint";
-            s.AppendLine("-- 财务科目映射导入 v1.4.1；仅 INSERT，不包含后期 UPDATE。");
+            s.AppendLine("-- 财务科目映射导入 v1.4.2；仅 INSERT，不包含后期 UPDATE。");
             s.AppendLine("-- 批量读取目标映射一次；相同内容跳过，冲突或重复则回滚。默认锁等待10秒；已有有限会话超时则沿用。");
             s.AppendLine("-- 手动取消后，请在原窗口检查 SELECT @@SPID, @@TRANCOUNT, XACT_STATE(); 注意客户端取消不一定进入 CATCH。");
             s.AppendLine("USE [" + database.Replace("]", "]]") + "];\r\nGO\r\nSET NOCOUNT ON;");
@@ -255,24 +255,30 @@ namespace FinanceMappingTool
         }
         private static void AppendCompanyRelation(StringBuilder s, CompanyExportOptions company)
         {
-            string code = Q(company.CompanyCode, false), account = Q(company.AccountType, false), type = Q(company.OverseasType, false);
+            string code = Q(company.CompanyCode, false);
+            string type = "CASE [AccountType] " + string.Join(" ", company.AccountTypes.Select(a => "WHEN " + Q(a, false) + " THEN " + Q(company.GetCompanyOverseasType(a), false))) + " END";
+            var accounts = company.AccountTypes.Select(a => Q(a, false)).ToList();
             string currency = Q(company.Currency, false), memo = Q(company.Memo);
             s.AppendLine("    -- 凭证公司");
-            s.AppendLine("    -- 三类关系使用同一最终映射类型，并在同一事务内导入。");
+            s.AppendLine("    -- @01的OverseasType为映射类型+币制；@02再加02。其余公司字段不变。");
             s.AppendLine("    DECLARE @companyInserted int = 0;");
-            s.AppendLine("    DECLARE @CompanyExisting TABLE ([OverseasType] varchar(50),[LanguageType] varchar(50),[Memo] nvarchar(400),[IsRoundOff] tinyint);");
-            s.AppendLine("    INSERT INTO @CompanyExisting SELECT [OverseasType],[LanguageType],[Memo],[IsRoundOff] FROM [dbo].[VoucherCompanyRelation] WITH (UPDLOCK,HOLDLOCK)");
-            s.AppendLine("    WHERE [CompanyCode]=" + code + " AND [AccountType]=" + account + " AND [IsDeleted]=0;");
-            s.AppendLine("    IF (SELECT COUNT_BIG(*) FROM @CompanyExisting)>1");
-            s.AppendLine("        THROW 50006, N'公司编码和账套已有多条有效关系，请核实重复数据。', 1;");
+            s.AppendLine("    DECLARE @CompanyExisting TABLE ([AccountType] varchar(20),[OverseasType] varchar(50),[LanguageType] varchar(50),[Memo] nvarchar(400),[IsRoundOff] tinyint);");
+            s.AppendLine("    INSERT INTO @CompanyExisting SELECT [AccountType],[OverseasType],[LanguageType],[Memo],[IsRoundOff] FROM [dbo].[VoucherCompanyRelation] WITH (UPDLOCK,HOLDLOCK)");
+            s.AppendLine("    WHERE [CompanyCode]=" + code + " AND [AccountType] IN (" + string.Join(",", accounts) + ") AND [IsDeleted]=0;");
+            s.AppendLine("    IF EXISTS (SELECT 1 FROM @CompanyExisting GROUP BY [AccountType] HAVING COUNT_BIG(*)>1)");
+            s.AppendLine("        THROW 50006, N'同一公司编码和账套已有多条有效关系，请核实重复数据。', 1;");
             s.AppendLine("    IF EXISTS (SELECT 1 FROM @CompanyExisting WHERE [OverseasType] IS NULL OR CONVERT(varbinary(max),[OverseasType])<>CONVERT(varbinary(max)," + type + ")" +
                 " OR [LanguageType] IS NULL OR CONVERT(varbinary(max),[LanguageType])<>CONVERT(varbinary(max)," + currency + ")" +
                 " OR [Memo] IS NULL OR CONVERT(varbinary(max),[Memo])<>CONVERT(varbinary(max)," + memo + ") OR [IsRoundOff] IS NULL OR [IsRoundOff]<>0)");
             s.AppendLine("        THROW 50007, N'公司编码和账套已有不同的映射类型、币制、备注或舍入设置，已回滚，请人工核实。', 1;");
-            s.AppendLine("    IF NOT EXISTS (SELECT 1 FROM @CompanyExisting)\r\n    BEGIN");
-            s.AppendLine("        INSERT INTO [dbo].[VoucherCompanyRelation] ([CompanyCode],[AccountType],[OverseasType],[LanguageType],[Memo],[IsRoundOff])");
-            s.AppendLine("        VALUES (" + string.Join(",", new[] { code, account, type, currency, memo, "0" }) + ");");
-            s.AppendLine("        SET @companyInserted = 1;\r\n    END;");
+            foreach (string rawAccount in company.AccountTypes)
+            {
+                string account = Q(rawAccount, false), insertionType = Q(company.GetCompanyOverseasType(rawAccount), false);
+                s.AppendLine("    IF NOT EXISTS (SELECT 1 FROM @CompanyExisting WHERE [AccountType]=" + account + ")\r\n    BEGIN");
+                s.AppendLine("        INSERT INTO [dbo].[VoucherCompanyRelation] ([CompanyCode],[AccountType],[OverseasType],[LanguageType],[Memo],[IsRoundOff])");
+                s.AppendLine("        VALUES (" + string.Join(",", new[] { code, account, insertionType, currency, memo, "0" }) + ");");
+                s.AppendLine("        SET @companyInserted += 1;\r\n    END;");
+            }
         }
         private static void AppendVoucherTypeRelations(StringBuilder s, IEnumerable<string> mappingTypes)
         {
@@ -280,25 +286,13 @@ namespace FinanceMappingTool
             var types = mappingTypes.Distinct(StringComparer.Ordinal).ToList();
             s.AppendLine("    -- 凭证类型");
             s.AppendLine("    DECLARE @voucherTypesInserted int = 0;");
-            s.AppendLine("    DECLARE @VoucherTypeExisting TABLE ([NCCVoucherType] nvarchar(50),[OverseasVoucherType] nvarchar(max),[OverseasType] varchar(50));");
-            s.AppendLine("    INSERT INTO @VoucherTypeExisting SELECT RTRIM([NCCVoucherType]),RTRIM([OverseasVoucherType]),RTRIM([OverseasType])");
-            s.AppendLine("    FROM [dbo].[VoucherTypeRelation] WITH (UPDLOCK,HOLDLOCK)");
-            s.AppendLine("    WHERE [OverseasType] IN (" + string.Join(",", types.Select(t => Q(t, false))) + ")");
-            s.AppendLine("      AND [NCCVoucherType] IN (" + string.Join(",", codes.Select(c => Q(c, false))) + ");");
-            s.AppendLine("    IF EXISTS (SELECT 1 FROM @VoucherTypeExisting GROUP BY [OverseasType],[NCCVoucherType] HAVING COUNT_BIG(*)>1)");
-            s.AppendLine("        THROW 50009, N'同一映射类型的凭证类型存在重复关系，请先核实。', 1;");
-            s.AppendLine("    IF EXISTS (SELECT 1 FROM @VoucherTypeExisting WHERE [OverseasVoucherType] IS NULL OR CONVERT(varbinary(max),[OverseasVoucherType])<>CONVERT(varbinary(max),[NCCVoucherType]))");
-            s.AppendLine("        THROW 50008, N'现存凭证类型的国内值与海外值不一致，已回滚，请人工核实。', 1;");
             foreach (string type in types)
                 foreach (string code in codes)
                 {
                     string value = Q(code, false), overseas = Q(type, false);
-                    s.AppendLine("    IF NOT EXISTS (SELECT 1 FROM @VoucherTypeExisting WHERE [NCCVoucherType]=" + value + " AND [OverseasType]=" + overseas + ")");
-                    s.AppendLine("    BEGIN");
                     s.AppendLine("        INSERT INTO [dbo].[VoucherTypeRelation] ([NCCVoucherType],[OverseasVoucherType],[OverseasType],[Memo])");
                     s.AppendLine("        VALUES (" + value + "," + value + "," + overseas + ",'');");
                     s.AppendLine("        SET @voucherTypesInserted += 1;");
-                    s.AppendLine("    END;");
                 }
         }
     }

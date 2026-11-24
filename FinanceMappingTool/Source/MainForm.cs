@@ -38,7 +38,7 @@ namespace FinanceMappingTool
 
         public MainForm()
         {
-            Text = "财务科目对照导入工具 v1.4.1";
+            Text = "财务科目对照导入工具 v1.4.2";
             Font = new Font("Microsoft YaHei UI", 9F);
             StartPosition = FormStartPosition.CenterScreen;
             Size = new Size(1180, 780);
@@ -216,7 +216,7 @@ namespace FinanceMappingTool
                 if (dialog.ShowDialog(this) != DialogResult.OK) return;
                 File.WriteAllText(dialog.FileName, sql, new UTF8Encoding(true));
                 status.Text = "已导出 " + rows.Count + " 条映射：" + dialog.FileName;
-                MessageBox.Show(this, "SQL 已保存。" + (company.HasCompany ? "已包含凭证公司、凭证类型及科目SQL，最终映射类型为“" + company.OverseasType + "”。" : "公司编码为空，本次生成凭证类型及科目关系SQL。") + "\r\n请在 SSMS 中确认目标数据库后执行。本次未执行数据库写入。", "导出完成");
+                MessageBox.Show(this, "SQL 已保存。" + (company.HasCompany ? "已包含凭证公司、凭证类型及科目SQL。凭证公司的OverseasType分别为“" + string.Join("”、“", company.AccountTypes.Select(a => company.GetCompanyOverseasType(a))) + "”；科目及凭证类型仍为“" + company.OverseasType + "”。" : "公司编码为空，本次生成凭证类型及科目关系SQL。") + "\r\n请在 SSMS 中确认目标数据库后执行。本次未执行数据库写入。", "导出完成");
             }
         }
         private void CommitPreview()
@@ -257,11 +257,11 @@ namespace FinanceMappingTool
                     if (dialog.ShowDialog(this) != DialogResult.OK) return;
                     file = dialog.FileName;
                 }
-                string referenceFile = CustomerReferenceReader.DefaultFilePath;
+                string referenceFile = CustomerReferenceReader.GetFilePath(path.Text);
                 if (string.Equals(Path.GetFullPath(file), Path.GetFullPath(referenceFile), StringComparison.OrdinalIgnoreCase))
                     throw new InvalidOperationException("导出文件不能覆盖参照文件“当前主数据.xlsx”，请选择其他文件名。");
                 SetExcelExportBusy(true); busy = true;
-                status.Text = "正在读取程序目录下的当前主数据.xlsx（Main）…";
+                status.Text = "正在读取所选Excel同目录下的当前主数据.xlsx（Main）…";
                 var reference = await Task.Run(() => CustomerReferenceReader.Read(referenceFile));
                 var anomalies = ExcelReport.Analyze(table, reference);
                 status.Text = "正在生成一个含两个工作表的Excel文件…";
@@ -277,7 +277,7 @@ namespace FinanceMappingTool
             catch (Exception ex)
             {
                 status.Text = "Excel导出未完成。";
-                MessageBox.Show(this, "Excel导出未完成：" + ex.Message + "\r\n请检查程序EXE所在目录的“当前主数据.xlsx”、Main工作表以及FeeNo、CustomerType列；不会跳过类型检查后生成不完整报告。", "导出失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show(this, "Excel导出未完成：" + ex.Message + "\r\n请检查所选Excel文件同目录下的“当前主数据.xlsx”、Main工作表以及FeeNo、CustomerType列；不会跳过类型检查后生成不完整报告。", "导出失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             finally
             {

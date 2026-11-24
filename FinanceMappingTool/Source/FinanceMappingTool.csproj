@@ -17,6 +17,5 @@
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="All" />
     <Reference Include="System.Xml.Linq" />
     <None Update="mapping-rules.xml" CopyToOutputDirectory="PreserveNewest" />
-    <None Update="当前主数据.xlsx" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

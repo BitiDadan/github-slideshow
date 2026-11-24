@@ -10,11 +10,14 @@ namespace FinanceMappingTool
     {
         public const string FileName = "当前主数据.xlsx";
         public const string WorksheetName = "Main";
-        public static string DefaultFilePath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, FileName);
-        public static List<CustomerReference> Read() { return Read(DefaultFilePath); }
+        public static string GetFilePath(string selectedExcelFile)
+        {
+            if (string.IsNullOrWhiteSpace(selectedExcelFile)) throw new InvalidDataException("请先选择需要解析的Excel文件。");
+            return Path.Combine(Path.GetDirectoryName(Path.GetFullPath(selectedExcelFile)), FileName);
+        }
         public static List<CustomerReference> Read(string file)
         {
-            if (!File.Exists(file)) throw new FileNotFoundException("未找到参照文件，请将“当前主数据.xlsx”放在程序EXE所在目录：" + file, file);
+            if (!File.Exists(file)) throw new FileNotFoundException("未找到参照文件，请将“当前主数据.xlsx”放在所选择Excel文件的同目录下：" + file, file);
             using (var book = new XLWorkbook(file))
             {
                 IXLWorksheet sheet;
