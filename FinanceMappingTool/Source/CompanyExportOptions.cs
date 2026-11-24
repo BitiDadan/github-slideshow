@@ -10,18 +10,23 @@ namespace FinanceMappingTool
         public string CompanyCode { get; }
         public string CompanyName { get; }
         public string Currency { get; }
+        public bool RemoveAccountLeadingZeros { get; }
         public const string SecondaryCurrency = "CNY";
         public bool HasCompany => CompanyCode.Length > 0;
         public string OverseasType => ComposeMappingType(BaseMappingType, Currency);
         public string SecondaryOverseasType => ComposeSecondaryMappingType(OverseasType);
         public string AccountCompanyCode
         {
-            get { string value = CompanyCode.TrimStart('0'); return HasCompany && value.Length == 0 ? "0" : value; }
+            get
+            {
+                if (!RemoveAccountLeadingZeros) return CompanyCode;
+                string value = CompanyCode.TrimStart('0'); return HasCompany && value.Length == 0 ? "0" : value;
+            }
         }
         public IReadOnlyList<string> AccountTypes => new[] { AccountCompanyCode + "@01", AccountCompanyCode + "@02" };
         public string Memo => "[" + CompanyCode + "]" + CompanyName;
-        public CompanyExportOptions(string mappingType, string code, string name, string currency)
-        { BaseMappingType = (mappingType ?? "").Trim(); CompanyCode = (code ?? "").Trim(); CompanyName = (name ?? "").Trim(); Currency = (currency ?? "").Trim(); }
+        public CompanyExportOptions(string mappingType, string code, string name, string currency, bool removeAccountLeadingZeros = true)
+        { BaseMappingType = (mappingType ?? "").Trim(); CompanyCode = (code ?? "").Trim(); CompanyName = (name ?? "").Trim(); Currency = (currency ?? "").Trim(); RemoveAccountLeadingZeros = removeAccountLeadingZeros; }
         public static string ComposeMappingType(string mappingType, string currency)
         {
             string type = (mappingType ?? "").Trim(), unit = (currency ?? "").Trim();
@@ -42,7 +47,7 @@ namespace FinanceMappingTool
             Check(CompanyCode, 17, true, true, "公司编码");
             if (accountType == AccountCompanyCode + "@01") return false;
             if (accountType == AccountCompanyCode + "@02") return true;
-            throw new InvalidDataException("公司账套必须是去除公司编码前导零后加@01或@02。");
+            throw new InvalidDataException("公司账套必须按当前“账套编码去除前导零”选项处理公司编码后加@01或@02。");
         }
         public void Validate()
         {

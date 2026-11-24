@@ -79,6 +79,19 @@ static class CompanyExportChecks
                     normalizedSql.Contains("WHEN '"+expected+"@02' THEN 'CNY'"),"normalized account lookup and expected currency: "+code);
             }
             Invalid(()=>new CompanyExportOptions("Demo","090102","Demo","AUD").GetCompanyCurrency("090102@02"),"unnormalized account rejected by currency lookup");
+            foreach(bool removeZeros in new[]{true,false})
+            foreach(string code in new[]{"090102","90102","000000"})
+            {
+                string expected=removeZeros?(code=="000000"?"0":"90102"):code;
+                var optional=new CompanyExportOptions("KDVoucher",code,"Demo","AUD",removeZeros);optional.Validate();
+                Check(optional.RemoveAccountLeadingZeros==removeZeros && optional.AccountTypes.SequenceEqual(new[]{expected+"@01",expected+"@02"}),"optional leading zeros rule "+removeZeros+" for "+code);
+                string optionalSql=MappingEngine.Sql(MappingEngine.ForType(seed,"KDVoucher",rule,"AUD"),"DemoDB",optional);Parse(optionalSql);
+                Check(optionalSql.Contains("VALUES ('"+code+"','"+expected+"@01','KDVoucherAUD','AUD',N'["+code+"]Demo',0);") &&
+                    optionalSql.Contains("VALUES ('"+code+"','"+expected+"@02','KDVoucherAUD02','CNY',N'["+code+"]Demo',0);"),"both ledger INSERTs follow checkbox without changing company fields "+removeZeros+" for "+code);
+                Check(optionalSql.Contains("[AccountType] IN ('"+expected+"@01','"+expected+"@02')") &&
+                    optionalSql.Contains("WHEN '"+expected+"@02' THEN 'CNY'"),"existing company lookup and currency checks follow checkbox "+removeZeros+" for "+code);
+            }
+            Check(new CompanyExportOptions("Demo","090102","Demo","AUD").RemoveAccountLeadingZeros,"leading zero rule defaults to checked");
         }
         finally{File.Delete(rule);}
     }

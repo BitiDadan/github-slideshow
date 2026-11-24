@@ -20,6 +20,7 @@ namespace FinanceMappingTool
         private readonly TextBox companyCode = new TextBox { Width = 130, MaxLength = 17 };
         private readonly TextBox companyName = new TextBox { Width = 340, MaxLength = 400 };
         private readonly TextBox currency = new TextBox { Text = "VND", Width = 80, MaxLength = 50 };
+        private readonly CheckBox removeAccountLeadingZeros = new CheckBox { Text = "账套编码去除前导零", Checked = true, AutoSize = true, Margin = new Padding(8, 6, 3, 0) };
         private readonly TextBox finalType = new TextBox { Text = "KDVoucherVND", ReadOnly = true, TabStop = false, Width = 220 };
         private readonly Button load = new Button { Text = "选择并读取 Excel", AutoSize = true };
         private readonly Button export = new Button { Text = "导出 SQL", AutoSize = true, Enabled = false };
@@ -38,7 +39,7 @@ namespace FinanceMappingTool
 
         public MainForm()
         {
-            Text = "财务科目对照导入工具 v1.5.2";
+            Text = "财务科目对照导入工具 v1.5.3";
             Font = new Font("Microsoft YaHei UI", 9F);
             StartPosition = FormStartPosition.CenterScreen;
             Size = new Size(1180, 780);
@@ -57,6 +58,7 @@ namespace FinanceMappingTool
             AddLabel(companies, "公司编码"); companies.Controls.Add(companyCode);
             AddLabel(companies, "公司名称"); companies.Controls.Add(companyName);
             AddLabel(companies, "币制"); companies.Controls.Add(currency);
+            companies.Controls.Add(removeAccountLeadingZeros);
             var options = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, WrapContents = true };
             AddLabel(options, "工作表"); options.Controls.Add(sheet);
             AddLabel(options, "表头行"); options.Controls.Add(header);
@@ -210,7 +212,7 @@ namespace FinanceMappingTool
         {
             CommitPreview();
             var rows = preview.ToList();
-            var company = new CompanyExportOptions(type.Text, companyCode.Text, companyName.Text, currency.Text);
+            var company = new CompanyExportOptions(type.Text, companyCode.Text, companyName.Text, currency.Text, removeAccountLeadingZeros.Checked);
             string sql = MappingEngine.Sql(rows, database.Text.Trim(), company);
             using (var dialog = new SaveFileDialog { Filter = "SQL 脚本 (*.sql)|*.sql", DefaultExt = "sql", AddExtension = true,
                 FileName = "VoucherFeeRelation_" + string.Concat(previewType.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c)) + "_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".sql" })
@@ -242,6 +244,7 @@ namespace FinanceMappingTool
             load.Enabled = !busy; grid.Enabled = !busy; type.ReadOnly = busy;
             sheet.ReadOnly = busy; header.Enabled = !busy; database.ReadOnly = busy;
             companyCode.ReadOnly = companyName.ReadOnly = currency.ReadOnly = busy;
+            removeAccountLeadingZeros.Enabled = !busy;
             export.Enabled = exportExcel.Enabled = !busy && preview != null && !string.IsNullOrWhiteSpace(type.Text) && !string.IsNullOrWhiteSpace(currency.Text);
             UseWaitCursor = busy;
         }

@@ -1,10 +1,10 @@
-# 财务科目对照导入工具 v1.5.2
+# 财务科目对照导入工具 v1.5.3
 
 C# / WinForms / .NET Framework 4.8。读取 Excel 科目对照表，预览后生成 SQL Server 2014 兼容的 INSERT 脚本，或导出一个含两个工作表的 Excel 报告。不依赖安装 Office。完全离线运行。Excel报告导出会读取所选源Excel同目录下的“当前主数据.xlsx”作为客户/供应商类型参照，不连接数据库。
 
 ## 下载运行
 
-打开本目录 `Downloads/FinanceMappingTool-v1.5.2.zip`，点击 GitHub 的 **Download raw file** 下载完整包。完整解压后进入 `Program`，双击 `FinanceMappingTool.exe`。EXE、DLL、配置文件必须放在同一目录。
+打开本目录 `Downloads/FinanceMappingTool-v1.5.3.zip`，点击 GitHub 的 **Download raw file** 下载完整包。完整解压后进入 `Program`，双击 `FinanceMappingTool.exe`。EXE、DLL、配置文件必须放在同一目录。
 
 需要 Windows 和 .NET Framework 4.8。无需安装 Python、.NET 8 或 VS 即可运行。
 
@@ -32,24 +32,24 @@ KDVoucher及其他自定义映射类型使用Excel对应关系；仅完整输入
 
 ## 公司信息与公司关系SQL（v1.4.0）
 
-界面第二行从左到右为“公司编码”“公司名称”“币制”，币制默认VND。原“映射类型”文本框只输入基础名称，UI最终类型为“基础映射类型＋币制”，不插入分隔符；副账簿在该值后追加02。公司编码为空时只跳过公司关系，仍生成两账簿的其余SQL，币制始终必填。
+界面第二行从左到右为“公司编码”“公司名称”“币制”和“账套编码去除前导零”勾选框，币制默认VND，勾选框默认勾选。原“映射类型”文本框只输入基础名称，UI最终类型为“基础映射类型＋币制”，不插入分隔符；副账簿在该值后追加02。公司编码为空时只跳过公司关系，仍生成两账簿的其余SQL，币制始终必填。
 
 公司编码非空时，在同一SQL文件中增加VoucherCompanyRelation导入：
 
 | SQL字段 | 来源 |
 | --- | --- |
 | CompanyCode | 公司编码，保留前导零 |
-| AccountType | 公司编码去掉前导零后分别追加@01、@02，生成两条公司关系SQL；全零编码保留一个0 |
+| AccountType | 受“账套编码去除前导零”控制：默认勾选时去除前导零，取消勾选时保留原编码，再分别追加@01、@02；勾选时全零编码保留一个0 |
 | OverseasType | @01使用基础映射类型＋币制；@02使用基础映射类型＋币制＋02。公司、凭证类型、辅助核算/现金流及科目共同采用此规则 |
 | LanguageType | 主账簿@01使用UI币制；副账簿@02固定为CNY（人民币） |
 | Memo | [公司编码]公司名称，使用Unicode字面量 |
 | IsRoundOff | 固定0 |
 
-例如虚构编码000123、基础类型DemoType、币制AUD：公司账套123@01对应DemoTypeAUD，123@02对应DemoTypeAUD02（CompanyCode及Memo中的编码仍为000123）；主账簿科目/凭证类型使用DemoTypeAUD，副账簿使用DemoTypeAUD02。输入基础类型时不要预先追加币制，否则会再次拼接。 两条公司关系的CompanyCode、Memo和IsRoundOff相同；LanguageType在@01使用UI币制，在@02固定CNY；AccountType分别是@01和@02，OverseasType分别采用“基础映射类型＋币制”和“基础映射类型＋币制＋02”；两条都在“凭证公司”区块内，先@01后@02，之后是两账簿18条凭证类型、内置现金流/摘要SQL和科目。存在性及重复检查分别按账套进行，有效的@01和@02各一条不视为重复；“公司关系新增条数”累计实际新增的两条。
+默认勾选时，例如虚构编码000123、基础类型DemoType、币制AUD：公司账套123@01对应DemoTypeAUD，123@02对应DemoTypeAUD02（CompanyCode及Memo中的编码仍为000123）；主账簿科目/凭证类型使用DemoTypeAUD，副账簿使用DemoTypeAUD02。输入基础类型时不要预先追加币制，否则会再次拼接。 两条公司关系的CompanyCode、Memo和IsRoundOff相同；LanguageType在@01使用UI币制，在@02固定CNY；AccountType分别是@01和@02，OverseasType分别采用“基础映射类型＋币制”和“基础映射类型＋币制＋02”；两条都在“凭证公司”区块内，先@01后@02，之后是两账簿18条凭证类型、内置现金流/摘要SQL和科目。存在性及重复检查分别按账套进行，有效的@01和@02各一条不视为重复；“公司关系新增条数”累计实际新增的两条。
 
 凭证公司、凭证类型、现金流/摘要和科目关系在同一个事务内执行；公司编码＋账套的有效关系已存在且内容相同则跳过，存在多条或内容不同则报错整体回滚，不自动覆盖。CreateDate和IsDeleted使用提供的表默认值。目标库需存在VoucherCompanyRelation（公司编码非空时）、VoucherTypeRelation、VoucherAuxiliaryRelation、VoucherAbstractRelation和VoucherFeeRelation。
 
-AccountType示例：公司编码090102生成90102@01、90102@02。仅账套编码去掉前导零，CompanyCode及Memo保持UI原公司编码；已有关系的查询和校验也使用新的账套编码。
+AccountType示例：公司编码090102，勾选“账套编码去除前导零”时生成90102@01、90102@02；取消勾选时生成090102@01、090102@02。此选项只影响AccountType，CompanyCode及Memo保持UI原公司编码；已有关系的查询和校验也跟随此选项。切换勾选状态不重置科目预览。
 
 长度限制遵循表结构：AccountType最长20字符，因此公司编码最多17字符；科目最终映射类型最多50字符，公司映射类型（含币制及02后缀）也最多50字符；[公司编码]公司名称合计最多400个UTF-16字符。编码、基础类型和币制使用可打印ASCII字符，公司名称支持中文等Unicode。无论公司编码是否为空，币制都不能为空；主账簿最终类型最多48字符，以预留副账簿02后缀。
 
@@ -68,7 +68,7 @@ AccountType示例：公司编码090102生成90102@01、90102@02。仅账套编�
 
 每套账簿的凭证类型直接按固定列表生成9条INSERT VALUES，不查询现有表、不做是否存在或重复校验。每条的NCCVoucherType和OverseasVoucherType相同，Memo为''。重复执行时也会尝试再次插入，是否接受重复由数据库约束决定。公司及科目部分原有的校验规则保持不变。结果集包含“凭证类型新增条数”。
 
-## 内置现金流与凭证摘要（v1.5.2）
+## 内置现金流与凭证摘要（v1.5.3）
 
 提供的SQL模板已嵌入程序，在凭证类型之后、科目之前输出：主账簿9条VoucherAuxiliaryRelation、副账簿9条，以及主账簿3条VoucherAbstractRelation，共21条INSERT。保留模板“副账簿默认CNY无需配置”的摘要说明，不额外生成副账簿摘要。
 
