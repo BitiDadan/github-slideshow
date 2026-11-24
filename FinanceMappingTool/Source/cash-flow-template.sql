@@ -36,7 +36,7 @@ INSERT INTO dbo.VoucherAuxiliaryRelation(AuxiliaryCode,AuxiliaryName,AuxiliaryCo
 
 --主账簿
 INSERT INTO dbo.VoucherAbstractRelation(OriginalAuxiliary, TranslateAuxiliary, OverseasType, LanguageType, Memo, CreateDate, IsDeleted) VALUES('收运费',N'collect freight charges',{{PRIMARY_TYPE}},{{CURRENCY}},'',getdate(),0)
-INSERT INTO dbo.VoucherAbstractRelation(OriginalAuxiliary, TranslateAuxiliary, OverseasType, LanguageType, Memo, CreateDate, IsDeleted) VALUES('付运费',N'Pay freight',{{PRIMARY_TYPE}},{{CURRENCY}},'',getdate(),0)
+INSERT INTO dbo.VoucherAbstractRelation(OriginalAuxiliary, TranslateAuxiliary, OverseasType, LanguageType, Memo, CreateDate, IsDeleted) VALUES('付运费',N'pay freight',{{PRIMARY_TYPE}},{{CURRENCY}},'',getdate(),0)
 INSERT INTO dbo.VoucherAbstractRelation(OriginalAuxiliary, TranslateAuxiliary, OverseasType, LanguageType, Memo, CreateDate, IsDeleted) VALUES('预收运费',N'receive in advance',{{PRIMARY_TYPE}},{{CURRENCY}},'',getdate(),0)
 
 --副账簿 默认CNY 不需要配置

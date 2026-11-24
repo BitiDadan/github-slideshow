@@ -38,7 +38,7 @@ namespace FinanceMappingTool
 
         public MainForm()
         {
-            Text = "财务科目对照导入工具 v1.5.0";
+            Text = "财务科目对照导入工具 v1.5.1";
             Font = new Font("Microsoft YaHei UI", 9F);
             StartPosition = FormStartPosition.CenterScreen;
             Size = new Size(1180, 780);

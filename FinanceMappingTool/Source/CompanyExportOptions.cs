@@ -10,6 +10,7 @@ namespace FinanceMappingTool
         public string CompanyCode { get; }
         public string CompanyName { get; }
         public string Currency { get; }
+        public const string SecondaryCurrency = "CNY";
         public bool HasCompany => CompanyCode.Length > 0;
         public string OverseasType => ComposeMappingType(BaseMappingType, Currency);
         public string SecondaryOverseasType => ComposeSecondaryMappingType(OverseasType);
@@ -29,10 +30,14 @@ namespace FinanceMappingTool
             Check(primary + "02", 50, true, true, "副账簿最终映射类型"); return primary + "02";
         }
         public string GetCompanyOverseasType(string accountType)
+        { return IsSecondaryAccount(accountType) ? SecondaryOverseasType : OverseasType; }
+        public string GetCompanyCurrency(string accountType)
+        { return IsSecondaryAccount(accountType) ? SecondaryCurrency : Currency; }
+        private bool IsSecondaryAccount(string accountType)
         {
             Check(CompanyCode, 17, true, true, "公司编码");
-            if (accountType == CompanyCode + "@01") return OverseasType;
-            if (accountType == CompanyCode + "@02") return SecondaryOverseasType;
+            if (accountType == CompanyCode + "@01") return false;
+            if (accountType == CompanyCode + "@02") return true;
             throw new InvalidDataException("公司账套必须是当前公司编码加@01或@02。");
         }
         public void Validate()

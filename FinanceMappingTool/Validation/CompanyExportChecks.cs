@@ -22,7 +22,8 @@ static class CompanyExportChecks
             string sql=MappingEngine.Sql(rows,"DemoDB",company);Parse(sql);
             Check(company.GetCompanyOverseasType("000123@01")=="KDVoucherVND" && company.GetCompanyOverseasType("000123@02")=="KDVoucherVND02","company OverseasType uses currency and adds 02 only for second account");
             foreach(string account in new[]{"000123@01","000123@02"})
-                Check(sql.Contains("VALUES ('000123','"+account+"','"+company.GetCompanyOverseasType(account)+"','VND',N'[000123]演示公司 O''Brien',0);"),"company tuple changes only account and OverseasType: "+account);
+                Check(sql.Contains("VALUES ('000123','"+account+"','"+company.GetCompanyOverseasType(account)+"','"+(account.EndsWith("@02")?"CNY":"VND")+"',N'[000123]演示公司 O''Brien',0);"),"company tuple uses per-ledger mapping type and currency: "+account);
+            Check(sql.Contains("CONVERT(varbinary(max),CASE [AccountType] WHEN '000123@01' THEN 'VND' WHEN '000123@02' THEN 'CNY' END)"),"existing company currency conflict checks expect UI currency for main and CNY for secondary");
             Check(sql.Contains("WHEN '000123@01' THEN 'KDVoucherVND'") && sql.Contains("WHEN '000123@02' THEN 'KDVoucherVND02'"),"existing company checks use per-account expected OverseasType");
             Check(rows[0].OverseasType=="KDVoucherVND" && sql.Contains("VALUES ('A','A','KDVoucherVND','');") && sql.Contains("VALUES ('A','A','KDVoucherVND02','');"),"subject and voucher types use currency-based main and secondary ledgers");
             Check(sql.Split(new[]{"INSERT INTO [dbo].[VoucherCompanyRelation]"},StringSplitOptions.None).Length==3,"exactly two company INSERT statements");
@@ -51,7 +52,16 @@ static class CompanyExportChecks
             Check(new CompanyExportOptions("KDVoucher","999","Demo","AUD").OverseasType==aud.OverseasType,"changing company code does not change mapping type");
             Invalid(()=>new CompanyExportOptions("Demo","","","").Validate(),"currency required even with no company code");
             Check(aud.GetCompanyOverseasType("000123@01")=="KDVoucherAUD" && aud.GetCompanyOverseasType("000123@02")=="KDVoucherAUD02","AUD company mappings match requested rule");
+            foreach(string unit in new[]{"AUD","VND","CNY"})
+            {
+                var perCurrency=new CompanyExportOptions("KDVoucher","000123","Demo",unit);
+                string ledgerSql=MappingEngine.Sql(MappingEngine.ForType(seed,"KDVoucher",rule,unit),"DemoDB",perCurrency);Parse(ledgerSql);
+                Check(perCurrency.GetCompanyCurrency("000123@01")==unit && perCurrency.GetCompanyCurrency("000123@02")=="CNY","secondary currency stays CNY for UI currency "+unit);
+                Check(ledgerSql.Contains("VALUES ('000123','000123@01','KDVoucher"+unit+"','"+unit+"',N'[000123]Demo',0);") &&
+                    ledgerSql.Contains("VALUES ('000123','000123@02','KDVoucher"+unit+"02','CNY',N'[000123]Demo',0);"),"company inserts preserve mapping naming and set ledger currency for "+unit);
+            }
             Invalid(()=>aud.GetCompanyOverseasType("000123@03"),"unexpected company account rejected");
+            Invalid(()=>aud.GetCompanyCurrency("000123@03"),"unexpected company currency account rejected");
             new CompanyExportOptions(new string('A',45),"1","Demo","VND").Validate();
             Invalid(()=>new CompanyExportOptions(new string('A',46),"1","Demo","VND").Validate(),"company type length includes currency and second-account 02 suffix");
             var quote=new CompanyExportOptions("Demo","A'1","中文'名称","VND");
