@@ -30,8 +30,8 @@ static class VoucherTypeChecks
             }
         Check(sql.Contains("'01','01'"),"01 remains text with leading zero");
         string typeBlock=sql.Substring(second,third-second);
-        Check(!sql.Contains("@VoucherTypeExisting") && !sql.Contains("FROM [dbo].[VoucherTypeRelation]") && !sql.Contains("THROW 50008") && !sql.Contains("THROW 50009"),"voucher types do not query or validate existing database rows");
-        Check(!typeBlock.Contains("IF ") && !typeBlock.Contains("SELECT ") && !typeBlock.Contains("EXISTS"),"all nine voucher type statements are unconditional direct inserts");
+        Check(sql.Contains("FROM [dbo].[VoucherTypeRelation] WITH (UPDLOCK,HOLDLOCK) WHERE [OverseasType]='DemoTypeAUD'") && sql.Contains("WHERE [OverseasType]='DemoTypeAUD02'"),"voucher existence checks distinguish primary and subsidiary types");
+        Check(typeBlock.Contains("IF EXISTS") && typeBlock.Contains("SET @voucherTypesSkipped += 9;") && !typeBlock.Contains("RETURN") && !typeBlock.Contains("THROW"),"existing type skips its nine inserts without stopping later sections");
         Check(sql.Contains("@voucherTypesInserted AS [凭证类型新增条数]"),"voucher type inserted count included");
         string legacy=MappingEngine.Sql(new List<MappingRow>{Row("KDVoucher")},"DemoDB");Parse(legacy);
         Check(!legacy.Contains("INSERT INTO [dbo].[VoucherCompanyRelation]") && legacy.Contains("VALUES ('01','01','KDVoucher','');"),"blank company still generates nine voucher types for base mapping");

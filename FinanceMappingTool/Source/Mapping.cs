@@ -200,7 +200,7 @@ namespace FinanceMappingTool
             var s = new StringBuilder();
             const string columns = "[FeeNo],[FeeName],[FeeNoOverseas],[FeeNameOverseas],[OverseasType],[Memo],[CustomerType],[CreditDebitType]";
             const string definition = "[FeeNo] varchar(20),[FeeName] nvarchar(400),[FeeNoOverseas] varchar(20),[FeeNameOverseas] nvarchar(400),[OverseasType] varchar(50),[Memo] nvarchar(400),[CustomerType] tinyint,[CreditDebitType] tinyint";
-            s.AppendLine("-- 财务科目映射导入 v1.5.5；仅 INSERT，不包含后期 UPDATE。");
+            s.AppendLine("-- 财务科目映射导入 v1.5.6；仅 INSERT，不包含后期 UPDATE。");
             s.AppendLine("-- 批量读取目标映射一次；相同内容跳过，冲突或重复则回滚。默认锁等待10秒；已有有限会话超时则沿用。");
             s.AppendLine("-- 手动取消后，请在原窗口检查 SELECT @@SPID, @@TRANCOUNT, XACT_STATE(); 注意客户端取消不一定进入 CATCH。");
             s.AppendLine("USE [" + database.Replace("]", "]]") + "];\r\nGO\r\nSET NOCOUNT ON;");
@@ -209,10 +209,12 @@ namespace FinanceMappingTool
             s.AppendLine("DECLARE @previousXactAbort bit = CASE WHEN (@@OPTIONS & 16384) = 16384 THEN 1 ELSE 0 END;");
             s.AppendLine("BEGIN TRY\r\n    IF @previousLockTimeout=-1 SET LOCK_TIMEOUT 10000;\r\n    SET XACT_ABORT ON;");
             s.AppendLine("    DECLARE @sessionId int = @@SPID, @effectiveLockTimeout int = @@LOCK_TIMEOUT;");
-            s.AppendLine("    RAISERROR(N'导入会话 SPID=%d，正在处理凭证公司、凭证类型、现金流/摘要和科目；锁等待超时设置%d毫秒。', 10, 1, @sessionId, @effectiveLockTimeout) WITH NOWAIT;");
+            s.AppendLine("    RAISERROR(N'导入会话 SPID=%d，正在处理凭证公司、公司本币、凭证类型、现金流/摘要和科目；锁等待超时设置%d毫秒。', 10, 1, @sessionId, @effectiveLockTimeout) WITH NOWAIT;");
             s.AppendLine("    BEGIN TRANSACTION;");
             if (company != null && company.HasCompany) AppendCompanyRelation(s, company);
             else s.AppendLine("    -- 凭证公司\r\n    -- 公司编码为空，跳过公司关系。");
+            if (company != null && company.HasCompany) AppendCompanyBaseCurrency(s, company);
+            else s.AppendLine("    -- 公司本币\r\n    -- 公司编码为空，跳过公司本币。");
             AppendVoucherTypeRelations(s, rows.Select(r => r.OverseasType));
             if (company != null) s.AppendLine(CashFlowTemplate.Render(company.OverseasType, company.SecondaryOverseasType, company.Currency));
             s.AppendLine("    -- 科目");
@@ -257,7 +259,8 @@ namespace FinanceMappingTool
             s.AppendLine("    WHERE NOT EXISTS (SELECT 1 FROM @Existing AS e WHERE e.[OverseasType]=i.[OverseasType] AND e.[FeeNo]=i.[FeeNo]) OPTION (RECOMPILE);");
             s.AppendLine("    SET @inserted = @@ROWCOUNT;\r\n    COMMIT TRANSACTION;");
             s.AppendLine("    IF @previousLockTimeout=-1 SET LOCK_TIMEOUT -1;\r\n    IF @previousXactAbort=0 SET XACT_ABORT OFF;");
-            s.AppendLine("    SELECT @inserted AS [本次新增条数],@expected-@inserted AS [已存在跳过条数],@expected AS [本次数据条数],@voucherTypesInserted AS [凭证类型新增条数]" +
+            s.AppendLine("    SELECT @inserted AS [本次新增条数],@expected-@inserted AS [已存在跳过条数],@expected AS [本次数据条数],@voucherTypesInserted AS [凭证类型新增条数],@voucherTypesSkipped AS [凭证类型跳过条数]" +
+                (company != null ? ",@cashFlowInserted AS [现金流新增条数],@cashFlowSkipped AS [现金流跳过条数],@abstractInserted AS [凭证摘要新增条数],@abstractSkipped AS [凭证摘要跳过条数]" : "") +
                 (company != null && company.HasCompany ? ",@companyInserted AS [公司关系新增条数]" : "") + ";");
             s.AppendLine("END TRY\r\nBEGIN CATCH\r\n    IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;");
             s.AppendLine("    IF @previousLockTimeout=-1 SET LOCK_TIMEOUT -1;\r\n    IF @previousXactAbort=0 SET XACT_ABORT OFF;");
@@ -295,20 +298,37 @@ namespace FinanceMappingTool
                 s.AppendLine("        SET @companyInserted += 1;\r\n    END;");
             }
         }
+        private static void AppendCompanyBaseCurrency(StringBuilder s, CompanyExportOptions company)
+        {
+            string code = Q(company.CompanyCode, false), currency = Q(company.Currency, false);
+            s.AppendLine("    -- 公司本币");
+            s.AppendLine("    IF NOT EXISTS (SELECT 1 FROM [dbo].[BaseCurrencyDefine] WHERE [CompanyCode]=" + code + ")");
+            s.AppendLine("    BEGIN");
+            s.AppendLine("        INSERT INTO [dbo].[BaseCurrencyDefine] ([CompanyCode],[BaseCurrencyNo],[CreateDate],[NCCAccountType])");
+            s.AppendLine("        SELECT " + code + " AS [CompanyCode]," + currency + " AS [BaseCurrencyNo],GETDATE() AS [CreateDate],'' AS [NCCAccountType];");
+            s.AppendLine("    END;");
+        }
         private static void AppendVoucherTypeRelations(StringBuilder s, IEnumerable<string> mappingTypes)
         {
             string[] codes = { "A", "B", "C", "D", "E", "F", "G", "H", "01" };
             var types = mappingTypes.Distinct(StringComparer.Ordinal).ToList();
             s.AppendLine("    -- 凭证类型");
-            s.AppendLine("    DECLARE @voucherTypesInserted int = 0;");
+            s.AppendLine("    DECLARE @voucherTypesInserted int = 0, @voucherTypesSkipped int = 0;");
             foreach (string type in types)
+            {
+                string overseas = Q(type, false);
+                s.AppendLine("    IF EXISTS (SELECT 1 FROM [dbo].[VoucherTypeRelation] WITH (UPDLOCK,HOLDLOCK) WHERE [OverseasType]=" + overseas + ")");
+                s.AppendLine("        SET @voucherTypesSkipped += " + codes.Length + ";");
+                s.AppendLine("    ELSE\r\n    BEGIN");
                 foreach (string code in codes)
                 {
-                    string value = Q(code, false), overseas = Q(type, false);
+                    string value = Q(code, false);
                     s.AppendLine("        INSERT INTO [dbo].[VoucherTypeRelation] ([NCCVoucherType],[OverseasVoucherType],[OverseasType],[Memo])");
                     s.AppendLine("        VALUES (" + value + "," + value + "," + overseas + ",'');");
-                    s.AppendLine("        SET @voucherTypesInserted += 1;");
+                    s.AppendLine("        SET @voucherTypesInserted += @@ROWCOUNT;");
                 }
+                s.AppendLine("    END;");
+            }
         }
     }
 }

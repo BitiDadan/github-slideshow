@@ -1,10 +1,10 @@
-# 财务科目对照导入工具 v1.5.5
+# 财务科目对照导入工具 v1.5.6
 
 C# / WinForms / .NET Framework 4.8。读取 Excel 科目对照表，预览后生成 SQL Server 2014 兼容的 INSERT 脚本，或导出一个含两个工作表的 Excel 报告。不依赖安装 Office。完全离线运行。Excel报告导出会读取所选源Excel同目录下的“当前主数据.xlsx”作为客户/供应商类型参照，不连接数据库。
 
 ## 下载运行
 
-打开本目录 `Downloads/FinanceMappingTool-v1.5.5.zip`，点击 GitHub 的 **Download raw file** 下载完整包。完整解压后进入 `Program`，双击 `FinanceMappingTool.exe`。EXE、DLL、配置文件必须放在同一目录。
+打开本目录 `Downloads/FinanceMappingTool-v1.5.6.zip`，点击 GitHub 的 **Download raw file** 下载完整包。完整解压后进入 `Program`，双击 `FinanceMappingTool.exe`。EXE、DLL、配置文件必须放在同一目录。
 
 需要 Windows 和 .NET Framework 4.8。无需安装 Python、.NET 8 或 VS 即可运行。
 
@@ -32,7 +32,7 @@ KDVoucher及其他自定义映射类型使用Excel对应关系；仅完整输入
 
 ## 公司信息与公司关系SQL（v1.4.0）
 
-界面第二行从左到右为“公司编码”“公司名称”“币制”和“账套编码去除前导零”勾选框，币制默认VND，勾选框默认勾选。原“映射类型”文本框只输入基础名称，UI最终类型为“基础映射类型＋币制”，不插入分隔符；副账簿在该值后追加02。公司编码为空时只跳过公司关系，仍生成两账簿的其余SQL，币制始终必填。
+界面第二行从左到右为“公司编码”“公司名称”“币制”和“账套编码去除前导零”勾选框，币制默认VND，勾选框默认勾选。原“映射类型”文本框只输入基础名称，UI最终类型为“基础映射类型＋币制”，不插入分隔符；副账簿在该值后追加02。公司编码为空时跳过公司关系和公司本币，仍生成两账簿的其余SQL，币制始终必填。
 
 公司编码非空时，在同一SQL文件中增加VoucherCompanyRelation导入：
 
@@ -47,7 +47,7 @@ KDVoucher及其他自定义映射类型使用Excel对应关系；仅完整输入
 
 默认勾选时，例如虚构编码000123、基础类型DemoType、币制AUD：公司账套123@01对应DemoTypeAUD，123@02对应DemoTypeAUD02（CompanyCode及Memo中的编码仍为000123）；主账簿科目/凭证类型使用DemoTypeAUD，副账簿使用DemoTypeAUD02。输入基础类型时不要预先追加币制，否则会再次拼接。 两条公司关系的CompanyCode、Memo和IsRoundOff相同；LanguageType在@01使用UI币制，在@02固定CNY；AccountType分别是@01和@02，OverseasType分别采用“基础映射类型＋币制”和“基础映射类型＋币制＋02”；两条都在“凭证公司”区块内，先@01后@02，之后是两账簿18条凭证类型、内置现金流/摘要SQL和科目。存在性及重复检查分别按账套进行，有效的@01和@02各一条不视为重复；“公司关系新增条数”累计实际新增的两条。
 
-凭证公司、凭证类型、现金流/摘要和科目关系在同一个事务内执行；公司编码＋账套的有效关系已存在且内容相同则跳过，存在多条或内容不同则报错整体回滚，不自动覆盖。CreateDate和IsDeleted使用提供的表默认值。目标库需存在VoucherCompanyRelation（公司编码非空时）、VoucherTypeRelation、VoucherAuxiliaryRelation、VoucherAbstractRelation和VoucherFeeRelation。
+凭证公司、公司本币、凭证类型、现金流/摘要和科目关系在同一个事务内执行；公司编码＋账套的有效关系已存在且内容相同则跳过，存在多条或内容不同则报错整体回滚，不自动覆盖。CreateDate和IsDeleted使用提供的表默认值。目标库需存在VoucherCompanyRelation和BaseCurrencyDefine（公司编码非空时）、VoucherTypeRelation、VoucherAuxiliaryRelation、VoucherAbstractRelation和VoucherFeeRelation。
 
 AccountType示例：公司编码090102，勾选“账套编码去除前导零”时生成90102@01、90102@02；取消勾选时生成090102@01、090102@02。此选项只影响AccountType，CompanyCode及Memo保持UI原公司编码；已有关系的查询和校验也跟随此选项。切换勾选状态不重置科目预览。
 
@@ -60,21 +60,24 @@ AccountType示例：公司编码090102，勾选“账套编码去除前导零”
 生成的SQL按以下注释区块从上到下排列，凭证公司和凭证类型的业务插入也在科目暂存数据之前：
 
 1. `-- 凭证公司`：生成VoucherCompanyRelation语句；公司编码为空则保留注释并跳过此表。
-2. `-- 凭证类型`：主、副账簿各生成9条VoucherTypeRelation语句，共18条，固定依次为A、B、C、D、E、F、G、H、01。NCCVoucherType和OverseasVoucherType取同一个字符串，Memo为''。01始终带引号，保留前导零。
-3. 内置“现金流”和“凭证摘要”区块：根据提供的模板生成。
-4. `-- 科目`：按主、副账簿暂存并检查科目数据，再插入VoucherFeeRelation。N条主账簿预览会生成2N条待导入科目。
+2. `-- 公司本币`：UI公司编码非空时，对BaseCurrencyDefine按CompanyCode判断是否存在；不存在才插入。CompanyCode保留UI编码前导零，BaseCurrencyNo取UI币制，CreateDate为GETDATE()，NCCAccountType为''。只生成一个公司本币区块，不额外生成副账簿CNY记录；已有数据直接跳过，不覆盖。
+3. `-- 凭证类型`：主、副账簿分别按OverseasType判断是否已存在；不存在时各插入9条VoucherTypeRelation，最多18条，固定依次为A、B、C、D、E、F、G、H、01。NCCVoucherType和OverseasVoucherType取同一个字符串，Memo为''。01始终带引号，保留前导零。
+4. 内置“现金流”和“凭证摘要”区块：根据提供的模板生成。
+5. `-- 科目`：按主、副账簿暂存并检查科目数据，再插入VoucherFeeRelation。N条主账簿预览会生成2N条待导入科目。
 
 主、副账簿分别使用UI最终映射类型和该值＋02，所有业务表对应一致。副账簿涉及的币制固定为CNY，但OverseasType仍为主账簿最终映射类型＋02，例如KDVoucherAUD02；公司关系的已有数据校验也按各自账簿的币制进行。公司编码为空时仍生成两套凭证类型、现金流及科目。所有区块在同一事务内执行并共同提交或回滚。
 
-每套账簿的凭证类型直接按固定列表生成9条INSERT VALUES，不查询现有表、不做是否存在或重复校验。每条的NCCVoucherType和OverseasVoucherType相同，Memo为''。重复执行时也会尝试再次插入，是否接受重复由数据库约束决定。公司及科目部分原有的校验规则保持不变。结果集包含“凭证类型新增条数”。
+凭证类型、现金流和凭证摘要各自在对应表中，仅按OverseasType判断是否存在相同类型（不增加CompanyCode、IsDeleted或单项编码条件）。该表已有任意一条该类型记录，就跳过本次这一整组，既不补齐缺少项，也不修改已有内容；主、副账簿分别判断，各表互不影响，后续科目仍继续处理。凭证类型每组9条，辅助核算/现金流每组9条，主账簿摘要一组3条。不存在时仍使用固定INSERT VALUES，凭证类型两个编码相同且Memo为''。存在性查询使用UPDLOCK/HOLDLOCK并沿用现有事务及锁等待超时。公司及科目部分原有的校验规则保持不变。
 
-## 内置现金流与凭证摘要（v1.5.5）
+执行成功后的结果集增加“凭证类型跳过条数”“现金流新增条数”“现金流跳过条数”“凭证摘要新增条数”“凭证摘要跳过条数”，保留“凭证类型新增条数”及原有科目/公司统计。跳过数指本次因类型存在而未执行的计划插入条数，不是库中已有记录数量。例如只存在一条主账簿凭证类型，也会计为本次跳过9条。
+
+## 内置现金流与凭证摘要（v1.5.6）
 
 提供的SQL模板已嵌入程序，在凭证类型之后、科目之前输出：主账簿9条VoucherAuxiliaryRelation、副账簿9条，以及主账簿3条VoucherAbstractRelation，共21条INSERT。保留模板“副账簿默认CNY无需配置”的摘要说明，不额外生成副账簿摘要。
 
 只替换模板中OverseasType列：原KDVoucherAUD→UI最终映射类型，原KDVoucherAUD02→UI最终映射类型＋02；主账簿凭证摘要的LanguageType同步使用UI币制；副账簿仍按模板说明使用CNY且不额外生成摘要。“付运费”的英文摘要统一为小写pay freight；其余字段、现金流代码及AuxiliaryJsonOverseas字符串按原文保留，不进行JSON转换。模板中的全角语句分隔空格转换为普通空格。
 
-模板以Source/cash-flow-template.sql嵌入EXE，运行时不需要复制单独的模板文件。现金流及摘要采用原文直接INSERT，不查询或去重现存数据。SQL Server语法校验仅检查SQL结构，不代表已验证业务系统对模板数据的解释。
+模板以Source/cash-flow-template.sql嵌入EXE，运行时不需要复制单独的模板文件。现金流及摘要的INSERT字段内容按模板保留，外层新增按表和OverseasType跳过整组的判断与新增/跳过计数。SQL Server语法校验仅检查SQL结构，不代表已验证业务系统对模板数据的解释。
 
 ## Excel导出与异常检查（v1.3.1）
 

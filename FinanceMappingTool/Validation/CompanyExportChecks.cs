@@ -20,6 +20,13 @@ static class CompanyExportChecks
             var rows=MappingEngine.ForType(seed,"KDVoucher",rule,company.Currency);
             Check(rows[0].OverseasType==company.OverseasType && seed[0].OverseasType=="KDVoucher","subject effective mapping type follows base plus currency without mutating source");
             string sql=MappingEngine.Sql(rows,"DemoDB",company);Parse(sql);
+            Check(sql.Contains("IF NOT EXISTS (SELECT 1 FROM [dbo].[BaseCurrencyDefine] WHERE [CompanyCode]='000123')") &&
+                sql.Contains("SELECT '000123' AS [CompanyCode],'VND' AS [BaseCurrencyNo],GETDATE() AS [CreateDate],'' AS [NCCAccountType];"),"company base currency uses original UI company code and currency with existence guard");
+            Check(sql.Split(new[]{"INSERT INTO [dbo].[BaseCurrencyDefine]"},StringSplitOptions.None).Length==2,"company base currency generated once for both ledgers");
+            int baseCurrency=sql.IndexOf("    -- 公司本币",StringComparison.Ordinal);
+            Check(sql.IndexOf("BEGIN TRANSACTION",StringComparison.Ordinal)<sql.IndexOf("    -- 凭证公司",StringComparison.Ordinal) &&
+                sql.IndexOf("    -- 凭证公司",StringComparison.Ordinal)<baseCurrency && baseCurrency<sql.IndexOf("    -- 凭证类型",StringComparison.Ordinal) &&
+                baseCurrency<sql.IndexOf("COMMIT TRANSACTION",StringComparison.Ordinal),"base currency appears between company and voucher type blocks within transaction");
             Check(company.GetCompanyOverseasType("123@01")=="KDVoucherVND" && company.GetCompanyOverseasType("123@02")=="KDVoucherVND02","company OverseasType uses currency and adds 02 only for second account");
             foreach(string account in new[]{"123@01","123@02"})
                 Check(sql.Contains("VALUES ('000123','"+account+"','"+company.GetCompanyOverseasType(account)+"','"+(account.EndsWith("@02")?"CNY":"VND")+"',N'[000123]演示公司 O''Brien',0);"),"company tuple uses per-ledger mapping type and currency: "+account);
@@ -41,6 +48,7 @@ static class CompanyExportChecks
             var noCompany=new CompanyExportOptions("KDVoucher","","","VND");
             string legacy=MappingEngine.Sql(MappingEngine.ForType(seed,"KDVoucher",rule,"VND"),"DemoDB",noCompany);Parse(legacy);
             Check(noCompany.OverseasType=="KDVoucherVND" && !legacy.Contains("VoucherCompanyRelation"),"empty company code skips company relation and retains subject export");
+            Check(!legacy.Contains("BaseCurrencyDefine") && legacy.Contains("公司编码为空，跳过公司本币"),"empty UI company code skips base currency insert");
             Invalid(()=>MappingEngine.Sql(seed,"DemoDB",company),"subject type inconsistent with its base and currency blocks export");
             Invalid(()=>new CompanyExportOptions("Demo","123456789012345678","Demo","VND").Validate(),"AccountType length includes @01/@02 suffix");
             Invalid(()=>CompanyExportOptions.ComposeMappingType(new string('A',45),"123456"),"combined mapping type length enforced");
@@ -56,6 +64,7 @@ static class CompanyExportChecks
             {
                 var perCurrency=new CompanyExportOptions("KDVoucher","000123","Demo",unit);
                 string ledgerSql=MappingEngine.Sql(MappingEngine.ForType(seed,"KDVoucher",rule,unit),"DemoDB",perCurrency);Parse(ledgerSql);
+                Check(ledgerSql.Contains("SELECT '000123' AS [CompanyCode],'"+unit+"' AS [BaseCurrencyNo],GETDATE() AS [CreateDate],'' AS [NCCAccountType];"),"base currency follows UI rather than subsidiary currency for "+unit);
                 Check(perCurrency.GetCompanyCurrency("123@01")==unit && perCurrency.GetCompanyCurrency("123@02")=="CNY","secondary currency stays CNY for UI currency "+unit);
                 Check(ledgerSql.Contains("VALUES ('000123','123@01','KDVoucher"+unit+"','"+unit+"',N'[000123]Demo',0);") &&
                     ledgerSql.Contains("VALUES ('000123','123@02','KDVoucher"+unit+"02','CNY',N'[000123]Demo',0);"),"company inserts preserve mapping naming and set ledger currency for "+unit);
@@ -67,6 +76,7 @@ static class CompanyExportChecks
             var quote=new CompanyExportOptions("Demo","A'1","中文'名称","VND");
             string escaped=MappingEngine.Sql(MappingEngine.ForType(seed,"Demo",rule,"VND"),"DemoDB",quote);Parse(escaped);
             Check(escaped.Contains("'A''1@01'") && escaped.Contains("'A''1@02'") && escaped.Contains("N'[A''1]中文''名称'"),"all company inputs SQL-escaped");
+            Check(escaped.Contains("[BaseCurrencyDefine] WHERE [CompanyCode]='A''1'") && escaped.Contains("SELECT 'A''1' AS [CompanyCode],'VND' AS [BaseCurrencyNo]"),"base currency SQL escapes original company code");
             foreach(string code in new[]{"090102","90102","000000","0"})
             {
                 string expected=(code=="000000" || code=="0")?"0":"90102";

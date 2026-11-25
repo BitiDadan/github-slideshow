@@ -35,7 +35,7 @@ static class LedgerCashChecks
         Check(rendered.Split(new[]{"INSERT INTO dbo.VoucherAuxiliaryRelation"},StringSplitOptions.None).Length-1==18,"18 auxiliary/cash statements preserved");
         Check(rendered.Split(new[]{"INSERT INTO dbo.VoucherAbstractRelation"},StringSplitOptions.None).Length-1==3,"three main ledger abstract statements preserved");
         Check(!rendered.Contains("KDVoucherAUD") && !rendered.Contains("'AUD'") && !rendered.Contains("{{"),"all requested placeholders replaced");
-        Check(rendered.Split(new[]{"'DemoCNY02'"},StringSplitOptions.None).Length-1==9 && rendered.Split(new[]{"'DemoCNY'"},StringSplitOptions.None).Length-1==12,"auxiliary and abstract ledger assignments preserved");
+        Check(rendered.Split(new[]{"'DemoCNY02'"},StringSplitOptions.None).Length-1==10 && rendered.Split(new[]{"'DemoCNY'"},StringSplitOptions.None).Length-1==14,"auxiliary and abstract ledger assignments preserved with per-type existence checks");
         Check(rendered.Contains("'DemoCNY','CNY'") && rendered.Contains("getdate(),0"),"abstract currency follows UI and date/delete expressions retained");
         Check(rendered.Contains("[{\"key\":\"1111\",\"value\":\"CI01.01.01\"}") && rendered.Contains("[''客户'':[''number'':''{0}'']]"),"original cash codes and JSON/template payloads remain literal and unchanged");
         string escaped=CashFlowTemplate.Render("Demo'Type","Demo'Type02","U'SD");Parse(escaped);
