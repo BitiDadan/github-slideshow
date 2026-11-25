@@ -1,10 +1,10 @@
-# 财务科目对照导入工具 v1.5.3
+# 财务科目对照导入工具 v1.5.4
 
 C# / WinForms / .NET Framework 4.8。读取 Excel 科目对照表，预览后生成 SQL Server 2014 兼容的 INSERT 脚本，或导出一个含两个工作表的 Excel 报告。不依赖安装 Office。完全离线运行。Excel报告导出会读取所选源Excel同目录下的“当前主数据.xlsx”作为客户/供应商类型参照，不连接数据库。
 
 ## 下载运行
 
-打开本目录 `Downloads/FinanceMappingTool-v1.5.3.zip`，点击 GitHub 的 **Download raw file** 下载完整包。完整解压后进入 `Program`，双击 `FinanceMappingTool.exe`。EXE、DLL、配置文件必须放在同一目录。
+打开本目录 `Downloads/FinanceMappingTool-v1.5.4.zip`，点击 GitHub 的 **Download raw file** 下载完整包。完整解压后进入 `Program`，双击 `FinanceMappingTool.exe`。EXE、DLL、配置文件必须放在同一目录。
 
 需要 Windows 和 .NET Framework 4.8。无需安装 Python、.NET 8 或 VS 即可运行。
 
@@ -68,7 +68,7 @@ AccountType示例：公司编码090102，勾选“账套编码去除前导零”
 
 每套账簿的凭证类型直接按固定列表生成9条INSERT VALUES，不查询现有表、不做是否存在或重复校验。每条的NCCVoucherType和OverseasVoucherType相同，Memo为''。重复执行时也会尝试再次插入，是否接受重复由数据库约束决定。公司及科目部分原有的校验规则保持不变。结果集包含“凭证类型新增条数”。
 
-## 内置现金流与凭证摘要（v1.5.3）
+## 内置现金流与凭证摘要（v1.5.4）
 
 提供的SQL模板已嵌入程序，在凭证类型之后、科目之前输出：主账簿9条VoucherAuxiliaryRelation、副账簿9条，以及主账簿3条VoucherAbstractRelation，共21条INSERT。保留模板“副账簿默认CNY无需配置”的摘要说明，不额外生成副账簿摘要。
 
@@ -154,3 +154,7 @@ v1.1 的两处 `SET LOCK_TIMEOUT @previousLockTimeout` 会被 SQL Server 引擎�
 已完成Release编译，以及列顺序变化、表头改名、重名/空表头、人工指定、重复来源禁止、前导零格式、读取快照一致性、按选定字段校验编码等自动检查；原始Excel仍生成305条映射。另完成1条、305条、1001条及原始Excel生成脚本的SQL Server 2014语法解析检查。未在Windows实际启动界面，未连接用户SQL Server；隔离测试服务器因验证环境磁盘限制未能启动，因此未完成数据库运行及阻塞超时实测。Excel导出已用合成数据实际生成并重新打开验证：两个sheet名称顺序、所有数据单元格一致、空异常表保留、两类异常及同一行多异常、文本前导零、公式样式文本、覆盖保存。文件参照读取已覆盖列顺序/大小写/空白行、数值显示格式、可选过滤列、缺少文件或工作表、缺少/重名列及非法类型等验证。数据库连接代码和连接窗口已移除。
 
 第三方依赖及许可证见 `Source/ThirdPartyNotices`，通过NuGet管理。程序包约2.7MB，不含.NET Framework运行时。
+
+## 程序图标
+
+采用选定的9号机械映射节点图标：银色圆形机械底座、三个蓝色节点及三角连接。工程通过ApplicationIcon将Assets/FinanceMappingTool.ico编译到EXE，窗口图标从EXE加载；无需额外复制图标文件。ICO含16、20、24、32、40、48、64、128、256像素尺寸和透明背景。Assets/FinanceMappingTool.png保留生成的透明背景原图。

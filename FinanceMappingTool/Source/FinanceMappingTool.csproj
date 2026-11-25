@@ -5,6 +5,7 @@
     <UseWindowsForms>true</UseWindowsForms>
     <LangVersion>7.3</LangVersion>
     <AssemblyName>FinanceMappingTool</AssemblyName>
+    <ApplicationIcon>Assets\FinanceMappingTool.ico</ApplicationIcon>
     <RootNamespace>FinanceMappingTool</RootNamespace>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
