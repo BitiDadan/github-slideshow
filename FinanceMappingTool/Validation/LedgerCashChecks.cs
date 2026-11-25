@@ -17,13 +17,20 @@ static class LedgerCashChecks
             var preview=Enumerable.Range(1,count).Select(i=>Row(i,options.OverseasType)).ToList();
             var expanded=MappingEngine.ForLedgers(preview,options.OverseasType);
             Check(expanded.Count==count*2 && expanded.Take(count).All(r=>r.OverseasType=="KDVoucherAUD") && expanded.Skip(count).All(r=>r.OverseasType=="KDVoucherAUD02"),"two sets of subject rows "+count);
-            Check(expanded[count].FeeNoOverseas==preview[0].FeeNoOverseas && expanded[count].Memo==preview[0].Memo && !ReferenceEquals(expanded[count],preview[0]),"secondary copies preview and changes only mapping type");
+            Check(expanded.Take(count).Select(r=>r.FeeNoOverseas).SequenceEqual(preview.Select(r=>r.FeeNoOverseas)),"primary keeps preview overseas codes");
+            Check(expanded.Skip(count).All(r=>r.FeeNoOverseas==r.FeeNo),"secondary overseas code equals its domestic code including leading zeros");
+            Check(expanded[count].FeeNameOverseas==preview[0].FeeNameOverseas && expanded[count].Memo==preview[0].Memo && expanded[count].CustomerType==preview[0].CustomerType && !ReferenceEquals(expanded[count],preview[0]),"secondary preserves overseas name and other attributes in a separate copy");
             string sql=MappingEngine.Sql(preview,"DemoDB",options);Parse(sql);
+            Check(sql.Contains("(2,'000001',N'国内名称','F1',N'Foreign','KDVoucherAUD'") && sql.Contains("(2,'000001',N'国内名称','000001',N'Foreign','KDVoucherAUD02'"),"generated SQL changes overseas code only for secondary ledger");
             Check(sql.Split(new[]{"INSERT INTO @Import"},StringSplitOptions.None).Length-1==(count*2+999)/1000,"doubled input respects 1000-row VALUES limit");
-            Check(preview.Count==count && preview.All(r=>r.OverseasType==options.OverseasType),"preview remains primary-only and unmodified");
+            Check(preview.Count==count && preview.All(r=>r.OverseasType==options.OverseasType) && preview.Select((r,i)=>r.FeeNoOverseas=="F"+(i+1) && r.FeeNameOverseas=="Foreign").All(x=>x),"preview remains primary-only and retains original overseas codes and names");
             int voucher=sql.LastIndexOf("INSERT INTO [dbo].[VoucherTypeRelation]",StringComparison.Ordinal),cash=sql.IndexOf("/********************现金流",StringComparison.Ordinal),subjects=sql.IndexOf("    -- 科目",StringComparison.Ordinal);
             Check(voucher<cash && cash<subjects,"cash and abstracts after voucher types before subjects");
         }
+        var edited=new List<MappingRow>{Row(1,options.OverseasType)};
+        edited[0].FeeNo="008801";edited[0].FeeNoOverseas="MANUAL";edited[0].FeeNameOverseas="Edited foreign name";
+        var editedLedgers=MappingEngine.ForLedgers(edited,options.OverseasType);
+        Check(editedLedgers[0].FeeNoOverseas=="MANUAL" && editedLedgers[1].FeeNoOverseas=="008801" && editedLedgers[1].FeeNameOverseas=="Edited foreign name" && edited[0].FeeNoOverseas=="MANUAL","secondary uses current edited domestic code while preserving main and preview foreign fields");
         string rendered=CashFlowTemplate.Render("DemoCNY","DemoCNY02","CNY");Parse(rendered);
         Check(rendered.Split(new[]{"INSERT INTO dbo.VoucherAuxiliaryRelation"},StringSplitOptions.None).Length-1==18,"18 auxiliary/cash statements preserved");
         Check(rendered.Split(new[]{"INSERT INTO dbo.VoucherAbstractRelation"},StringSplitOptions.None).Length-1==3,"three main ledger abstract statements preserved");

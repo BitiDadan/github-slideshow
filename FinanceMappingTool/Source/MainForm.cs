@@ -39,7 +39,7 @@ namespace FinanceMappingTool
 
         public MainForm()
         {
-            Text = "财务科目对照导入工具 v1.5.4";
+            Text = "财务科目对照导入工具 v1.5.5";
             Icon = System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath);
             Font = new Font("Microsoft YaHei UI", 9F);
             StartPosition = FormStartPosition.CenterScreen;
@@ -71,7 +71,7 @@ namespace FinanceMappingTool
             previewPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             previewPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             previewPanel.Controls.Add(new Label { AutoSize = true, MaximumSize = new Size(1080, 0), Text =
-                "可双击修改映射和属性；切换映射类型或重新读取会重置手工修改。CustomerType：资产=1，其余=2；不执行原脚本 UPDATE。\r\n预览及Excel为主账簿；SQL同时生成副账簿，副账簿只将映射类型追加02。基础类型为KDVoucher02时仍应用原有02转换。" }, 0, 0);
+                "可双击修改映射和属性；切换映射类型或重新读取会重置手工修改。CustomerType：资产=1，其余=2；不执行原脚本 UPDATE。\r\n预览及Excel为主账簿；SQL同时生成副账簿，副账簿映射类型追加02，海外科目编码使用国内科目编码；海外名称保留预览值。基础类型为KDVoucher02时仍应用原有02转换。" }, 0, 0);
             previewPanel.Controls.Add(grid, 0, 1);
             panel.Controls.Add(files, 0, 0); panel.Controls.Add(companies, 0, 1); panel.Controls.Add(options, 0, 2); panel.Controls.Add(previewPanel, 0, 3);
             panel.Controls.Add(status, 0, 4); panel.Controls.Add(log, 0, 5);

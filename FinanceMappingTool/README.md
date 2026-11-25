@@ -1,10 +1,10 @@
-# 财务科目对照导入工具 v1.5.4
+# 财务科目对照导入工具 v1.5.5
 
 C# / WinForms / .NET Framework 4.8。读取 Excel 科目对照表，预览后生成 SQL Server 2014 兼容的 INSERT 脚本，或导出一个含两个工作表的 Excel 报告。不依赖安装 Office。完全离线运行。Excel报告导出会读取所选源Excel同目录下的“当前主数据.xlsx”作为客户/供应商类型参照，不连接数据库。
 
 ## 下载运行
 
-打开本目录 `Downloads/FinanceMappingTool-v1.5.4.zip`，点击 GitHub 的 **Download raw file** 下载完整包。完整解压后进入 `Program`，双击 `FinanceMappingTool.exe`。EXE、DLL、配置文件必须放在同一目录。
+打开本目录 `Downloads/FinanceMappingTool-v1.5.5.zip`，点击 GitHub 的 **Download raw file** 下载完整包。完整解压后进入 `Program`，双击 `FinanceMappingTool.exe`。EXE、DLL、配置文件必须放在同一目录。
 
 需要 Windows 和 .NET Framework 4.8。无需安装 Python、.NET 8 或 VS 即可运行。
 
@@ -28,7 +28,7 @@ C# / WinForms / .NET Framework 4.8。读取 Excel 科目对照表，预览后生
 日志会列出五个字段最终采用的Excel列。预览表格列头高度增加约50%，在当前DPI下计算并允许标题换行。
 两侧均空忽略；缺一侧编码跳过并记录；空名称保留并提示；同一国内编码默认取第一条并列出重复行。
 CustomerType 初始规则为资产=1，其余=2；CreditDebitType 初始为NULL。可在预览修改。不执行任何后期维护 UPDATE。
-KDVoucher及其他自定义映射类型使用Excel对应关系；仅完整输入 KDVoucher02 时，海外编码/名称默认直接使用国内编码/名称，备注为02账套。基础类型改变后离开输入框时刷新预览，会重置手工修改；更改币制时只更新主账簿映射类型，保留手工修改。公司编码不再参与映射类型命名。仅显式输入基础类型KDVoucher02时应用原有02转换；自动生成的副账簿只复制当前预览并改变OverseasType，不自动改变科目编码/名称。
+KDVoucher及其他自定义映射类型使用Excel对应关系；仅完整输入 KDVoucher02 时，海外编码/名称默认直接使用国内编码/名称，备注为02账套。基础类型改变后离开输入框时刷新预览，会重置手工修改；更改币制时只更新主账簿映射类型，保留手工修改。公司编码不再参与映射类型命名。仅显式输入基础类型KDVoucher02时应用原有02转换；自动生成的副账簿以当前预览为基础，将OverseasType追加02，同时将FeeNoOverseas设为同一行FeeNo；FeeNameOverseas及其他属性保留预览值。
 
 ## 公司信息与公司关系SQL（v1.4.0）
 
@@ -53,7 +53,7 @@ AccountType示例：公司编码090102，勾选“账套编码去除前导零”
 
 长度限制遵循表结构：AccountType最长20字符，因此公司编码最多17字符；科目最终映射类型最多50字符，公司映射类型（含币制及02后缀）也最多50字符；[公司编码]公司名称合计最多400个UTF-16字符。编码、基础类型和币制使用可打印ASCII字符，公司名称支持中文等Unicode。无论公司编码是否为空，币制都不能为空；主账簿最终类型最多48字符，以预留副账簿02后缀。
 
-预览及Excel报告只显示主账簿，内容与当前预览保持一致。SQL导出会复制一套副账簿科目，仅将OverseasType改为主账簿类型＋02；不会修改当前预览，也不会覆盖手工修改。参照主数据的异常检查规则不变。
+预览及Excel报告只显示主账簿，内容与当前预览保持一致。SQL导出会复制一套副账簿科目，将OverseasType改为主账簿类型＋02，并将海外科目编码FeeNoOverseas替换为同一行国内科目编码FeeNo，保留其前导零。此替换只用于副账簿SQL，海外科目名称FeeNameOverseas及其他属性保留预览值；主账簿SQL、当前预览和导出Excel保持原海外科目编码及手工修改。参照主数据的异常检查规则不变。
 
 ## 凭证类型及SQL顺序（v1.4.1）
 
@@ -68,7 +68,7 @@ AccountType示例：公司编码090102，勾选“账套编码去除前导零”
 
 每套账簿的凭证类型直接按固定列表生成9条INSERT VALUES，不查询现有表、不做是否存在或重复校验。每条的NCCVoucherType和OverseasVoucherType相同，Memo为''。重复执行时也会尝试再次插入，是否接受重复由数据库约束决定。公司及科目部分原有的校验规则保持不变。结果集包含“凭证类型新增条数”。
 
-## 内置现金流与凭证摘要（v1.5.4）
+## 内置现金流与凭证摘要（v1.5.5）
 
 提供的SQL模板已嵌入程序，在凭证类型之后、科目之前输出：主账簿9条VoucherAuxiliaryRelation、副账簿9条，以及主账簿3条VoucherAbstractRelation，共21条INSERT。保留模板“副账簿默认CNY无需配置”的摘要说明，不额外生成副账簿摘要。
 
