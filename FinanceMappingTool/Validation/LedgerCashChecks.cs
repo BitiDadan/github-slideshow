@@ -34,6 +34,8 @@ static class LedgerCashChecks
         string rendered=CashFlowTemplate.Render("DemoCNY","DemoCNY02","CNY");Parse(rendered);
         Check(rendered.Split(new[]{"INSERT INTO dbo.VoucherAuxiliaryRelation"},StringSplitOptions.None).Length-1==18,"18 auxiliary/cash statements preserved");
         Check(rendered.Split(new[]{"INSERT INTO dbo.VoucherAbstractRelation"},StringSplitOptions.None).Length-1==3,"three main ledger abstract statements preserved");
+        Check(new[]{"collect freight charges","pay freight","receive in advance"}.All(value=>rendered.Contains("N'"+value+" ',")),"all three English abstract translations have a trailing ASCII space");
+        Check(CashFlowTemplate.AddEnglishSeparator("pay freight ")=="pay freight " && CashFlowTemplate.AddEnglishSeparator("付运费")=="付运费" && CashFlowTemplate.AddEnglishSeparator("123")=="123" && CashFlowTemplate.AddEnglishSeparator("")=="" && CashFlowTemplate.AddEnglishSeparator("Driver's fee")=="Driver's fee ","English spacing is idempotent and leaves non-English or empty values unchanged");
         Check(!rendered.Contains("KDVoucherAUD") && !rendered.Contains("'AUD'") && !rendered.Contains("{{"),"all requested placeholders replaced");
         Check(rendered.Split(new[]{"'DemoCNY02'"},StringSplitOptions.None).Length-1==10 && rendered.Split(new[]{"'DemoCNY'"},StringSplitOptions.None).Length-1==14,"auxiliary and abstract ledger assignments preserved with per-type existence checks");
         Check(rendered.Contains("'DemoCNY','CNY'") && rendered.Contains("getdate(),0"),"abstract currency follows UI and date/delete expressions retained");

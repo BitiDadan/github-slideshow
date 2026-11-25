@@ -7,6 +7,17 @@ namespace FinanceMappingTool
     public static class CashFlowTemplate
     {
         private static string Literal(string value) { return "'" + value.Replace("'", "''") + "'"; }
+        internal static string AddEnglishSeparator(string value)
+        {
+            if (string.IsNullOrEmpty(value) || value.EndsWith(" ", StringComparison.Ordinal)) return value;
+            bool hasLetter = false;
+            foreach (char c in value)
+            {
+                if (c < 32 || c > 126) return value;
+                if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) hasLetter = true;
+            }
+            return hasLetter ? value + " " : value;
+        }
         public static string Render(string primaryType, string secondaryType, string currency)
         {
             if (CompanyExportOptions.ComposeSecondaryMappingType(primaryType) != secondaryType)
@@ -19,7 +30,11 @@ namespace FinanceMappingTool
                 {
                     var values = new Dictionary<string,string> { {"{{PRIMARY_TYPE}}",Literal(primaryType)},
                         {"{{SECONDARY_TYPE}}",Literal(secondaryType)},{"{{CURRENCY}}",Literal(currency)} };
-                    return Regex.Replace(reader.ReadToEnd(), @"\{\{(?:PRIMARY_TYPE|SECONDARY_TYPE|CURRENCY)\}\}", m => values[m.Value]);
+                    // Only format the second string literal (TranslateAuxiliary) of abstract INSERTs.
+                    string template = Regex.Replace(reader.ReadToEnd(),
+                        @"(INSERT INTO dbo\.VoucherAbstractRelation\([^\r\n]*?\)\s*VALUES\s*\(\s*N?'(?:''|[^'])*'\s*,\s*N?')((?:''|[^'])*)(')",
+                        m => m.Groups[1].Value + AddEnglishSeparator(m.Groups[2].Value) + m.Groups[3].Value);
+                    return Regex.Replace(template, @"\{\{(?:PRIMARY_TYPE|SECONDARY_TYPE|CURRENCY)\}\}", m => values[m.Value]);
                 }
             }
         }

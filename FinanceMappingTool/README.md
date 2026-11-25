@@ -1,10 +1,10 @@
-# 财务科目对照导入工具 v1.5.6
+# 财务科目对照导入工具 v1.5.7
 
 C# / WinForms / .NET Framework 4.8。读取 Excel 科目对照表，预览后生成 SQL Server 2014 兼容的 INSERT 脚本，或导出一个含两个工作表的 Excel 报告。不依赖安装 Office。完全离线运行。Excel报告导出会读取所选源Excel同目录下的“当前主数据.xlsx”作为客户/供应商类型参照，不连接数据库。
 
 ## 下载运行
 
-打开本目录 `Downloads/FinanceMappingTool-v1.5.6.zip`，点击 GitHub 的 **Download raw file** 下载完整包。完整解压后进入 `Program`，双击 `FinanceMappingTool.exe`。EXE、DLL、配置文件必须放在同一目录。
+打开本目录 `Downloads/FinanceMappingTool-v1.5.7.zip`，点击 GitHub 的 **Download raw file** 下载完整包。完整解压后进入 `Program`，双击 `FinanceMappingTool.exe`。EXE、DLL、配置文件必须放在同一目录。
 
 需要 Windows 和 .NET Framework 4.8。无需安装 Python、.NET 8 或 VS 即可运行。
 
@@ -71,11 +71,11 @@ AccountType示例：公司编码090102，勾选“账套编码去除前导零”
 
 执行成功后的结果集增加“凭证类型跳过条数”“现金流新增条数”“现金流跳过条数”“凭证摘要新增条数”“凭证摘要跳过条数”，保留“凭证类型新增条数”及原有科目/公司统计。跳过数指本次因类型存在而未执行的计划插入条数，不是库中已有记录数量。例如只存在一条主账簿凭证类型，也会计为本次跳过9条。
 
-## 内置现金流与凭证摘要（v1.5.6）
+## 内置现金流与凭证摘要（v1.5.7）
 
 提供的SQL模板已嵌入程序，在凭证类型之后、科目之前输出：主账簿9条VoucherAuxiliaryRelation、副账簿9条，以及主账簿3条VoucherAbstractRelation，共21条INSERT。保留模板“副账簿默认CNY无需配置”的摘要说明，不额外生成副账簿摘要。
 
-只替换模板中OverseasType列：原KDVoucherAUD→UI最终映射类型，原KDVoucherAUD02→UI最终映射类型＋02；主账簿凭证摘要的LanguageType同步使用UI币制；副账簿仍按模板说明使用CNY且不额外生成摘要。“付运费”的英文摘要统一为小写pay freight；其余字段、现金流代码及AuxiliaryJsonOverseas字符串按原文保留，不进行JSON转换。模板中的全角语句分隔空格转换为普通空格。
+只替换模板中OverseasType列：原KDVoucherAUD→UI最终映射类型，原KDVoucherAUD02→UI最终映射类型＋02；主账簿凭证摘要的LanguageType同步使用UI币制；副账簿仍按模板说明使用CNY且不额外生成摘要。“付运费”的英文摘要统一为小写pay freight；生成时仅对TranslateAuxiliary的英文内容补上末尾一个半角空格，已有末尾空格则不重复添加，中文、空值及纯数字不添加；其余字段、现金流代码及AuxiliaryJsonOverseas字符串按原文保留，不进行JSON转换。模板中的全角语句分隔空格转换为普通空格。
 
 模板以Source/cash-flow-template.sql嵌入EXE，运行时不需要复制单独的模板文件。现金流及摘要的INSERT字段内容按模板保留，外层新增按表和OverseasType跳过整组的判断与新增/跳过计数。SQL Server语法校验仅检查SQL结构，不代表已验证业务系统对模板数据的解释。
 
