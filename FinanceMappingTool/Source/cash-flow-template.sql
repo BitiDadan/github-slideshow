@@ -24,7 +24,7 @@ BEGIN
     SET @cashFlowInserted += @@ROWCOUNT;
     INSERT INTO dbo.VoucherAuxiliaryRelation(AuxiliaryCode,AuxiliaryName,AuxiliaryCodeOverseas,AuxiliaryNameOverseas,AuxiliaryJsonOverseas,OverseasType,Memo)VALUES('bondex-ywlx','业务类型','业务类型','业务类型','[''业务类型":[''number":''{0}'']]',{{PRIMARY_TYPE}},'')
     SET @cashFlowInserted += @@ROWCOUNT;
-    INSERT INTO dbo.VoucherAuxiliaryRelation(AuxiliaryCode,AuxiliaryName,AuxiliaryCodeOverseas,AuxiliaryNameOverseas,AuxiliaryJsonOverseas,OverseasType,Memo)VALUES('0007','现金流量','现金流量','现金流量','[{"key":"1111","value":"CI01.01.01"},{"key":"1121","value":"CI01.02.01"},{"key":"111310","value":"CI01.01.03.07"},{"key":"111313","value":"CI01.01.03.10"},{"key":"111314","value":"CI01.01.03.11"},{"key":"112410","value":"CI01.02.04.09"},{"key":"112413","value":"CI01.02.04.12"},{"key":"112414","value":"CI01.02.04.13"}]',{{PRIMARY_TYPE}},'')
+    INSERT INTO dbo.VoucherAuxiliaryRelation(AuxiliaryCode,AuxiliaryName,AuxiliaryCodeOverseas,AuxiliaryNameOverseas,AuxiliaryJsonOverseas,OverseasType,Memo)VALUES('0007','现金流量','现金流量','现金流量','[{"key":"1111","value":"CFI-IFRS-01.01.01"},{"key":"1121","value":"CFI-IFRS-01.02.01"},{"key":"111310","value":"CFI-IFRS-01.01.03.07"},{"key":"111313","value":"CFI-IFRS-01.01.03.10"},{"key":"111314","value":"CFI-IFRS-01.01.03.11"},{"key":"112410","value":"CFI-IFRS-01.02.04.08"},{"key":"112413","value":"CFI-IFRS-01.02.04.11"},{"key":"112414","value":"CFI-IFRS-01.02.04.12"}]',{{PRIMARY_TYPE}},'')
     SET @cashFlowInserted += @@ROWCOUNT;
 END;
 
