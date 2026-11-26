@@ -18,6 +18,7 @@ namespace FinanceMappingTool
         public string FeeNameOverseas { get; set; }
         public string OverseasType { get; set; }
         public string CustomerType { get; set; }
+        public string DefaultCustomerType { get; set; }
         public string CreditDebitType { get; set; }
         public string Memo { get; set; }
         public MappingRow Copy() { return (MappingRow)MemberwiseClone(); }
@@ -33,6 +34,28 @@ namespace FinanceMappingTool
 
     public static class MappingEngine
     {
+        private static string InitialCustomerType(string subjectType)
+        { return subjectType == "资产" || subjectType == "损益" || subjectType == "权益" ? "1" : "2"; }
+        public static bool ApplyCustomerTypeExceptions(IEnumerable<MappingRow> rows, IReadOnlyDictionary<string, string> exceptions = null)
+        {
+            exceptions = exceptions ?? CustomerTypeRules.Defaults;
+            bool changed = false;
+            foreach (var row in rows)
+            {
+                string value;
+                if (exceptions.TryGetValue(row.FeeNo, out value) && row.CustomerType != value)
+                { row.CustomerType = value; changed = true; }
+            }
+            return changed;
+        }
+        public static void RefreshCustomerTypeExceptions(IEnumerable<MappingRow> rows,
+            IReadOnlyDictionary<string, string> previous, IReadOnlyDictionary<string, string> current)
+        {
+            foreach (var row in rows)
+                if ((previous.ContainsKey(row.FeeNo) || current.ContainsKey(row.FeeNo)) && row.DefaultCustomerType != null)
+                    row.CustomerType = row.DefaultCustomerType;
+            ApplyCustomerTypeExceptions(rows, current);
+        }
         private static readonly Dictionary<string, string> SqlCreditDebitTypes = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             { "112202", "1" }, { "1312", "1" }, { "122101", "4" },
@@ -75,6 +98,7 @@ namespace FinanceMappingTool
             var result = new ImportResult();
             var rules = XDocument.Load(ruleFile).Root;
             if (rules == null || rules.Name != "MappingRules") throw new InvalidDataException("规则文件根节点错误。");
+            var customerRules = CustomerTypeRules.FromRoot(rules);
             var seen = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             int last = sheet.LastRowUsed(XLCellsUsedOptions.Contents)?.RowNumber() ?? headerRow;
             for (int r = headerRow + 1; r <= last; r++)
@@ -90,7 +114,7 @@ namespace FinanceMappingTool
                 var item = new MappingRow { ExcelRow = r, FeeNo = domestic,
                     FeeName = Cell(sheet, r, map[ExcelField.DomesticName]), FeeNoOverseas = foreign,
                     FeeNameOverseas = Cell(sheet, r, map[ExcelField.OverseasName]), OverseasType = "KDVoucher",
-                    CustomerType = Cell(sheet, r, map[ExcelField.AccountKind]) == "资产" ? "1" : "2",
+                    CustomerType = InitialCustomerType(Cell(sheet, r, map[ExcelField.AccountKind])),
                     CreditDebitType = "", Memo = "" };
                 foreach (var rule in rules.Elements("Override"))
                 {
@@ -105,6 +129,7 @@ namespace FinanceMappingTool
                     item.CreditDebitType = (string)rule.Attribute("creditDebitType") ?? item.CreditDebitType;
                     result.Messages.Add("第 " + r + " 行：已应用配置中的人工修订。");
                 }
+                item.DefaultCustomerType = item.CustomerType;
                 if (seen.ContainsKey(item.FeeNo))
                 {
                     result.Duplicates++;
@@ -117,6 +142,7 @@ namespace FinanceMappingTool
                 if (string.IsNullOrWhiteSpace(item.FeeName)) result.Messages.Add("第 " + r + " 行：国内科目名称为空。");
                 result.Rows.Add(item);
             }
+            ApplyCustomerTypeExceptions(result.Rows, customerRules);
             Validate(result.Rows);
             return result;
         }
@@ -144,11 +170,12 @@ namespace FinanceMappingTool
                     }
                 }
             }
+            ApplyCustomerTypeExceptions(rows, CustomerTypeRules.FromRoot(root));
             Validate(rows);
             return rows;
         }
 
-        public static List<MappingRow> ForLedgers(IList<MappingRow> primaryRows, string primaryType)
+        public static List<MappingRow> ForLedgers(IList<MappingRow> primaryRows, string primaryType, IReadOnlyDictionary<string, string> customerRules = null)
         {
             Validate(primaryRows);
             string secondary = CompanyExportOptions.ComposeSecondaryMappingType(primaryType);
@@ -156,6 +183,7 @@ namespace FinanceMappingTool
                 throw new InvalidDataException("主账簿预览的映射类型与UI最终映射类型不一致，请刷新预览后重试。");
             var result = primaryRows.Select(r => r.Copy()).ToList();
             result.AddRange(primaryRows.Select(r => { var copy = r.Copy(); copy.OverseasType = secondary; copy.FeeNoOverseas = copy.FeeNo; return copy; }));
+            ApplyCustomerTypeExceptions(result, customerRules);
             Validate(result); return result;
         }
 
@@ -194,20 +222,22 @@ namespace FinanceMappingTool
         private static string Q(string s, bool unicode = true)
         { return (unicode ? "N" : "") + "'" + (s ?? "").Replace("'", "''") + "'"; }
 
-        public static string Sql(IList<MappingRow> rows, string database, CompanyExportOptions company = null)
+        public static string Sql(IList<MappingRow> rows, string database, CompanyExportOptions company = null, IReadOnlyDictionary<string, string> customerRules = null)
         {
+            rows = rows.Select(r => r.Copy()).ToList();
+            ApplyCustomerTypeExceptions(rows, customerRules);
             Validate(rows);
             if (company != null)
             {
                 company.Validate();
-                rows = ForLedgers(rows, company.OverseasType);
+                rows = ForLedgers(rows, company.OverseasType, customerRules);
             }
             if (string.IsNullOrWhiteSpace(database) || database.Length > 128 || database.Any(char.IsControl))
                 throw new InvalidDataException("请填写有效的目标数据库名称（最多128字符）。");
             var s = new StringBuilder();
             const string columns = "[FeeNo],[FeeName],[FeeNoOverseas],[FeeNameOverseas],[OverseasType],[Memo],[CustomerType],[CreditDebitType]";
             const string definition = "[FeeNo] varchar(20),[FeeName] nvarchar(400),[FeeNoOverseas] varchar(20),[FeeNameOverseas] nvarchar(400),[OverseasType] varchar(50),[Memo] nvarchar(400),[CustomerType] tinyint,[CreditDebitType] tinyint";
-            s.AppendLine("-- 财务科目映射导入 v1.5.9；仅 INSERT，不包含后期 UPDATE。");
+            s.AppendLine("-- 财务科目映射导入 v1.6.0；仅 INSERT，不包含后期 UPDATE。");
             s.AppendLine("-- 批量读取目标映射一次；相同内容跳过，冲突或重复则回滚。默认锁等待10秒；已有有限会话超时则沿用。");
             s.AppendLine("-- 手动取消后，请在原窗口检查 SELECT @@SPID, @@TRANCOUNT, XACT_STATE(); 注意客户端取消不一定进入 CATCH。");
             s.AppendLine("USE [" + database.Replace("]", "]]") + "];\r\nGO\r\nSET NOCOUNT ON;");

@@ -1,6 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <MappingRules>
-  <!-- 通用版不包含业务修订。需要例外时，自行添加 Override 或 Type02Override。 -->
+  <!-- 客户/供应商特例可通过“设置特例”维护。其他修订可添加Override或Type02Override。 -->
   <!-- Override 属性：enabled=true、sourceFeeNo、sourceOverseas，及可选的 feeNo、overseas、feeName、overseasName、customerType、creditDebitType。 -->
   <!-- Type02Override 属性：feeNo、overseas，可选 overseasName。 -->
+  <CustomerTypeExceptions>
+    <Rule feeNo="2203" customerType="1" />
+    <Rule feeNo="220301" customerType="1" />
+    <Rule feeNo="220399" customerType="1" />
+    <Rule feeNo="1123" customerType="2" />
+    <Rule feeNo="112301" customerType="2" />
+    <Rule feeNo="112302" customerType="2" />
+    <Rule feeNo="11230399" customerType="2" />
+    <Rule feeNo="112398" customerType="2" />
+    <Rule feeNo="6401" customerType="2" />
+    <Rule feeNo="640101" customerType="2" />
+  </CustomerTypeExceptions>
 </MappingRules>

@@ -20,8 +20,9 @@ static class CreditDebitTypeChecks
         Check(errors.Count==0,"fixed credit/debit SQL parses as SQL Server 2014");
         foreach(var pair in expected)
         {
-            string main="'"+pair.Key+"',N'自定义科目名称','FOREIGN',N'Foreign name','DemoAUD',N'keep',1,"+pair.Value+")";
-            string secondary="'"+pair.Key+"',N'自定义科目名称','"+pair.Key+"',N'Foreign name','DemoAUD02',N'keep',1,"+pair.Value+")";
+            string customer=pair.Key=="112301" || pair.Key=="112302"?"2":"1";
+            string main="'"+pair.Key+"',N'自定义科目名称','FOREIGN',N'Foreign name','DemoAUD',N'keep',"+customer+","+pair.Value+")";
+            string secondary="'"+pair.Key+"',N'自定义科目名称','"+pair.Key+"',N'Foreign name','DemoAUD02',N'keep',"+customer+","+pair.Value+")";
             Check(sql.Contains(main) && sql.Contains(secondary),"SQL-only fixed credit/debit value on both ledgers for "+pair.Key+" = "+pair.Value);
         }
         foreach(var row in preview.Where(r=>!expected.ContainsKey(r.FeeNo)))

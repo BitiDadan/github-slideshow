@@ -14,7 +14,7 @@ namespace FinanceMappingTool
     {
         private readonly TextBox path = new TextBox { Width = 570, ReadOnly = true };
         private readonly TextBox sheet = new TextBox { Text = "科目对照表", Width = 130 };
-        private readonly TextBox database = new TextBox { Text = "FinanceDB", Width = 120 };
+        private readonly TextBox database = new TextBox { Text = "Settlesnap", Width = 120 };
         private readonly NumericUpDown header = new NumericUpDown { Minimum = 1, Maximum = 10000, Value = 1, Width = 55 };
         private readonly TextBox type = new TextBox { Text = "KDVoucher", MaxLength = 50, Width = 135 };
         private readonly TextBox companyCode = new TextBox { Width = 130, MaxLength = 4096 };
@@ -26,6 +26,8 @@ namespace FinanceMappingTool
         private readonly Button export = new Button { Text = "导出 SQL", AutoSize = true, Enabled = false };
         private readonly Button exportExcel = new Button { Text = "导出 Excel", AutoSize = true, Enabled = false };
         private readonly Button saveLog = new Button { Text = "保存检查日志", AutoSize = true, Enabled = false };
+        private readonly Button setExceptions = new Button { Text = "设置特例", AutoSize = true };
+        private IReadOnlyDictionary<string, string> customerTypeRules = CustomerTypeRules.Defaults;
         private readonly Label status = new Label { AutoSize = true, Text = "请选择 .xlsx 文件。" };
         private readonly TextBox log = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Both, Dock = DockStyle.Fill, WordWrap = false };
         private readonly DataGridView grid = new DataGridView { Dock = DockStyle.Fill, AutoGenerateColumns = false,
@@ -39,7 +41,7 @@ namespace FinanceMappingTool
 
         public MainForm()
         {
-            Text = "财务科目对照导入工具 v1.5.9";
+            Text = "财务科目对照导入工具 v1.6.0";
             Icon = System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath);
             Font = new Font("Microsoft YaHei UI", 9F);
             StartPosition = FormStartPosition.CenterScreen;
@@ -66,12 +68,12 @@ namespace FinanceMappingTool
             AddLabel(options, "映射类型"); options.Controls.Add(type);
             AddLabel(options, "最终映射类型"); options.Controls.Add(finalType);
             AddLabel(options, "目标数据库"); options.Controls.Add(database);
-            options.Controls.Add(export); options.Controls.Add(exportExcel); options.Controls.Add(saveLog);
+            options.Controls.Add(export); options.Controls.Add(exportExcel); options.Controls.Add(setExceptions); options.Controls.Add(saveLog);
             var previewPanel = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 2, ColumnCount = 1 };
             previewPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             previewPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             previewPanel.Controls.Add(new Label { AutoSize = true, MaximumSize = new Size(1080, 0), Text =
-                "可双击修改映射和属性；切换映射类型或重新读取会重置手工修改。CustomerType：资产=1，其余=2；不执行原脚本 UPDATE。\r\n预览及Excel为主账簿；SQL同时生成副账簿，副账簿映射类型追加02，海外科目编码使用国内科目编码；海外名称保留预览值。基础类型为KDVoucher02时仍应用原有02转换。" }, 0, 0);
+                "可双击修改映射和属性；切换映射类型或重新读取会重置手工修改。CustomerType：资产/损益/权益=1，其余=2，指定国内编码特例优先；不执行原脚本 UPDATE。\r\n预览及Excel为主账簿；SQL同时生成副账簿，副账簿映射类型追加02，海外科目编码使用国内科目编码；海外名称保留预览值。基础类型为KDVoucher02时仍应用原有02转换。" }, 0, 0);
             previewPanel.Controls.Add(grid, 0, 1);
             panel.Controls.Add(files, 0, 0); panel.Controls.Add(companies, 0, 1); panel.Controls.Add(options, 0, 2); panel.Controls.Add(previewPanel, 0, 3);
             panel.Controls.Add(status, 0, 4); panel.Controls.Add(log, 0, 5);
@@ -81,6 +83,10 @@ namespace FinanceMappingTool
             AddColumn("OverseasType", "映射类型", true); AddColumn("CustomerType", "客户/供应商");
             AddColumn("CreditDebitType", "收付属性"); AddColumn("Memo", "备注");
             grid.DataBindingComplete += (s, e) => ResizeFirstColumn();
+            grid.CellEndEdit += (s, e) =>
+            {
+                if (preview != null && MappingEngine.ApplyCustomerTypeExceptions(preview, customerTypeRules)) preview.ResetBindings();
+            };
             load.Click += async (s, e) => await LoadExcel();
             EventHandler changed = (s, e) =>
             {
@@ -102,6 +108,8 @@ namespace FinanceMappingTool
             export.Click += (s, e) => TryAction(ExportSql);
             exportExcel.Click += async (s, e) => await ExportExcelAsync();
             saveLog.Click += (s, e) => TryAction(SaveLog);
+            setExceptions.Click += (s, e) => TryAction(EditCustomerTypeRules);
+            if (File.Exists(ruleFile)) TryAction(() => customerTypeRules = CustomerTypeRules.Load(ruleFile));
             grid.DataError += (s, e) => { MessageBox.Show(this, "输入格式错误，请检查当前单元格。", "输入检查"); e.ThrowException = false; };
         }
 
@@ -139,7 +147,7 @@ namespace FinanceMappingTool
                 string file = dialog.FileName, sheetName = sheet.Text.Trim(); int headerRow = (int)header.Value;
                 // Clear previous results so a failed import cannot export stale data.
                 source = null; preview = null; previewType = null; previewBaseType = null; grid.DataSource = null; export.Enabled = exportExcel.Enabled = false;
-                path.Text = file; load.Enabled = false; type.Enabled = false; saveLog.Enabled = false;
+                path.Text = file; load.Enabled = false; type.Enabled = false; saveLog.Enabled = false; setExceptions.Enabled = false;
                 status.Text = "正在读取和校验…"; log.Clear();
                 try
                 {
@@ -164,10 +172,11 @@ namespace FinanceMappingTool
                             session.Columns.First(c => c.Number == selected[f.Field]).Label).ToArray();
                         result = await Task.Run(() => session.Read(selected, ruleFile));
                     }
+                    customerTypeRules = CustomerTypeRules.Load(ruleFile);
                     source = result.Rows;
                     log.Lines = new[] { "来源：" + file, "工作表：" + sheetName + "；表头行：" + headerRow,
                         "基础映射 " + source.Count + " 条；缺一侧编码跳过 " + result.Skipped + " 行；重复国内编码忽略 " + result.Duplicates + " 行。",
-                        "保留 Excel 原值；人工修订仅在 mapping-rules.xml 对应规则 enabled=true 时生效。",
+                        "客户/供应商按科目类型及已保存特例确定；其他人工修订仅在 mapping-rules.xml 对应规则 enabled=true 时生效。",
                         "注意：本版不自动新增 Excel 中不存在的税务科目，也不复现原脚本后期 UPDATE。" }
                         .Concat(selectedSources).Concat(result.Messages).ToArray();
                     RefreshPreview(); saveLog.Enabled = true;
@@ -178,7 +187,7 @@ namespace FinanceMappingTool
                     status.Text = "读取失败。"; log.Text = ex.ToString(); saveLog.Enabled = true;
                     MessageBox.Show(this, ex.Message, "读取失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
-                finally { load.Enabled = true; type.Enabled = true; }
+                finally { load.Enabled = true; type.Enabled = true; setExceptions.Enabled = true; }
             }
         }
         private void UpdateFinalTypeDisplay()
@@ -216,6 +225,26 @@ namespace FinanceMappingTool
             status.Text = "当前预览：" + previewType + "，" + rows.Count + " 条。请检查映射和下方日志后导出。";
             export.Enabled = exportExcel.Enabled = true;
         }
+        private void EditCustomerTypeRules()
+        {
+            using (var dialog = new CustomerTypeRuleForm(ruleFile, CustomerTypeRules.Load(ruleFile)))
+            {
+                dialog.Icon = Icon;
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                var previous = customerTypeRules;
+                customerTypeRules = dialog.Rules;
+                if (source != null)
+                {
+                    MappingEngine.RefreshCustomerTypeExceptions(source, previous, customerTypeRules);
+                }
+                if (preview != null)
+                {
+                    MappingEngine.RefreshCustomerTypeExceptions(preview, previous, customerTypeRules);
+                    preview.ResetBindings();
+                }
+                status.Text = "已保存并应用客户/供应商特例：" + customerTypeRules.Count + " 条。";
+            }
+        }
         private bool ParseCompanyInput()
         {
             string code, name;
@@ -230,7 +259,7 @@ namespace FinanceMappingTool
             CommitPreview();
             var rows = preview.ToList();
             var company = new CompanyExportOptions(type.Text, companyCode.Text, companyName.Text, currency.Text, removeAccountLeadingZeros.Checked);
-            string sql = MappingEngine.Sql(rows, database.Text.Trim(), company);
+            string sql = MappingEngine.Sql(rows, database.Text.Trim(), company, customerTypeRules);
             using (var dialog = new SaveFileDialog { Filter = "SQL 脚本 (*.sql)|*.sql", DefaultExt = "sql", AddExtension = true,
                 FileName = "VoucherFeeRelation_" + string.Concat(previewType.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c)) + "_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".sql" })
             {
@@ -244,6 +273,7 @@ namespace FinanceMappingTool
         {
             if (!grid.EndEdit()) throw new InvalidOperationException("请先完成当前单元格的编辑。");
             if (grid.DataSource != null) BindingContext[grid.DataSource].EndCurrentEdit();
+            if (preview != null && MappingEngine.ApplyCustomerTypeExceptions(preview, customerTypeRules)) preview.ResetBindings();
             ApplyMappingInputs();
         }
 
@@ -262,6 +292,7 @@ namespace FinanceMappingTool
             sheet.ReadOnly = busy; header.Enabled = !busy; database.ReadOnly = busy;
             companyCode.ReadOnly = companyName.ReadOnly = currency.ReadOnly = busy;
             removeAccountLeadingZeros.Enabled = !busy;
+            setExceptions.Enabled = !busy;
             export.Enabled = exportExcel.Enabled = !busy && preview != null && !string.IsNullOrWhiteSpace(type.Text) && !string.IsNullOrWhiteSpace(currency.Text);
             UseWaitCursor = busy;
         }

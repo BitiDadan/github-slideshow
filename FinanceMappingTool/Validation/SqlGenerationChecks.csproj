@@ -2,6 +2,7 @@
   <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework></PropertyGroup>
   <ItemGroup>
     <Compile Include="../Source/Mapping.cs" Link="Mapping.cs" />
+    <Compile Include="../Source/CustomerTypeRules.cs" Link="CustomerTypeRules.cs" />
     <Compile Include="../Source/CompanyExportOptions.cs" Link="CompanyExportOptions.cs" />
     <Compile Include="../Source/CashFlowTemplate.cs" Link="CashFlowTemplate.cs" />
     <EmbeddedResource Include="../Source/cash-flow-template.sql" LogicalName="FinanceMappingTool.cash-flow-template.sql" />
