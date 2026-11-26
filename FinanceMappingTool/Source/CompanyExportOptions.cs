@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 namespace FinanceMappingTool
 {
     public sealed class CompanyExportOptions
@@ -27,6 +28,15 @@ namespace FinanceMappingTool
         public string Memo => "[" + CompanyCode + "]" + CompanyName;
         public CompanyExportOptions(string mappingType, string code, string name, string currency, bool removeAccountLeadingZeros = true)
         { BaseMappingType = (mappingType ?? "").Trim(); CompanyCode = (code ?? "").Trim(); CompanyName = (name ?? "").Trim(); Currency = (currency ?? "").Trim(); RemoveAccountLeadingZeros = removeAccountLeadingZeros; }
+        internal static bool TryParseCompanyText(string input, out string code, out string name)
+        {
+            code = name = "";
+            var match = Regex.Match(input ?? "", @"\A(?<before>[^\[\]]*)\[(?<code>[0-9]+)\](?<after>[^\[\]]*)\z");
+            if (!match.Success) return false;
+            code = match.Groups["code"].Value;
+            name = (match.Groups["before"].Value + match.Groups["after"].Value).Trim();
+            return true;
+        }
         public static string ComposeMappingType(string mappingType, string currency)
         {
             string type = (mappingType ?? "").Trim(), unit = (currency ?? "").Trim();

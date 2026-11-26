@@ -33,6 +33,13 @@ namespace FinanceMappingTool
 
     public static class MappingEngine
     {
+        private static readonly Dictionary<string, string> SqlCreditDebitTypes = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            { "112202", "1" }, { "1312", "1" }, { "122101", "4" },
+            { "12210403", "1" }, { "122108", "1" }, { "112301", "2" },
+            { "112302", "2" }, { "220202", "2" }, { "3312", "2" },
+            { "220301", "1" }, { "224105", "2" }, { "224106", "2" }
+        };
         internal static string Cell(IXLWorksheet sheet, int row, int col, bool isCode = false)
         {
             var c = sheet.Cell(row, col);
@@ -200,7 +207,7 @@ namespace FinanceMappingTool
             var s = new StringBuilder();
             const string columns = "[FeeNo],[FeeName],[FeeNoOverseas],[FeeNameOverseas],[OverseasType],[Memo],[CustomerType],[CreditDebitType]";
             const string definition = "[FeeNo] varchar(20),[FeeName] nvarchar(400),[FeeNoOverseas] varchar(20),[FeeNameOverseas] nvarchar(400),[OverseasType] varchar(50),[Memo] nvarchar(400),[CustomerType] tinyint,[CreditDebitType] tinyint";
-            s.AppendLine("-- 财务科目映射导入 v1.5.7；仅 INSERT，不包含后期 UPDATE。");
+            s.AppendLine("-- 财务科目映射导入 v1.5.8；仅 INSERT，不包含后期 UPDATE。");
             s.AppendLine("-- 批量读取目标映射一次；相同内容跳过，冲突或重复则回滚。默认锁等待10秒；已有有限会话超时则沿用。");
             s.AppendLine("-- 手动取消后，请在原窗口检查 SELECT @@SPID, @@TRANCOUNT, XACT_STATE(); 注意客户端取消不一定进入 CATCH。");
             s.AppendLine("USE [" + database.Replace("]", "]]") + "];\r\nGO\r\nSET NOCOUNT ON;");
@@ -219,6 +226,7 @@ namespace FinanceMappingTool
             if (company != null) s.AppendLine(CashFlowTemplate.Render(company.OverseasType, company.SecondaryOverseasType, company.Currency));
             s.AppendLine("    -- 科目");
             s.AppendLine("    -- 第一部分：本次待导入数据（仅暂存，不写入业务表）。");
+            s.AppendLine("    -- CreditDebitType：指定12个国内科目编码使用固定收付属性，其他科目保留预览值。");
             s.AppendLine("    DECLARE @Import TABLE ([ExcelRow] int," + definition + ", PRIMARY KEY ([OverseasType],[FeeNo]));");
             // SQL Server limits a direct INSERT VALUES constructor to 1000 rows.
             for (int offset = 0; offset < rows.Count; offset += 1000)
@@ -228,9 +236,11 @@ namespace FinanceMappingTool
                 for (int i = offset; i < end; i++)
                 {
                     var r = rows[i];
+                    string creditDebitType;
+                    if (!SqlCreditDebitTypes.TryGetValue(r.FeeNo, out creditDebitType)) creditDebitType = r.CreditDebitType;
                     var values = new[] { r.ExcelRow.ToString(CultureInfo.InvariantCulture), Q(r.FeeNo, false), Q(r.FeeName),
                         Q(r.FeeNoOverseas, false), Q(r.FeeNameOverseas), Q(r.OverseasType, false), Q(r.Memo), r.CustomerType,
-                        string.IsNullOrWhiteSpace(r.CreditDebitType) ? "NULL" : byte.Parse(r.CreditDebitType).ToString(CultureInfo.InvariantCulture) };
+                        string.IsNullOrWhiteSpace(creditDebitType) ? "NULL" : byte.Parse(creditDebitType).ToString(CultureInfo.InvariantCulture) };
                     s.AppendLine("        (" + string.Join(",", values) + ")" + (i + 1 == end ? ";" : ","));
                 }
             }

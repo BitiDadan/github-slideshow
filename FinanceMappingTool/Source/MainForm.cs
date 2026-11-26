@@ -17,7 +17,7 @@ namespace FinanceMappingTool
         private readonly TextBox database = new TextBox { Text = "FinanceDB", Width = 120 };
         private readonly NumericUpDown header = new NumericUpDown { Minimum = 1, Maximum = 10000, Value = 1, Width = 55 };
         private readonly TextBox type = new TextBox { Text = "KDVoucher", MaxLength = 50, Width = 135 };
-        private readonly TextBox companyCode = new TextBox { Width = 130, MaxLength = 17 };
+        private readonly TextBox companyCode = new TextBox { Width = 130, MaxLength = 4096 };
         private readonly TextBox companyName = new TextBox { Width = 340, MaxLength = 400 };
         private readonly TextBox currency = new TextBox { Text = "VND", Width = 80, MaxLength = 50 };
         private readonly CheckBox removeAccountLeadingZeros = new CheckBox { Text = "账套编码去除前导零", Checked = true, AutoSize = true, Margin = new Padding(8, 6, 3, 0) };
@@ -39,7 +39,7 @@ namespace FinanceMappingTool
 
         public MainForm()
         {
-            Text = "财务科目对照导入工具 v1.5.7";
+            Text = "财务科目对照导入工具 v1.5.8";
             Icon = System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath);
             Font = new Font("Microsoft YaHei UI", 9F);
             StartPosition = FormStartPosition.CenterScreen;
@@ -92,6 +92,13 @@ namespace FinanceMappingTool
             type.TextChanged += changed; currency.TextChanged += changed;
             EventHandler leave = (s, e) => { if (source != null && !string.IsNullOrWhiteSpace(type.Text) && !string.IsNullOrWhiteSpace(currency.Text)) TryAction(ApplyMappingInputs); };
             type.Leave += leave; currency.Leave += leave;
+            companyCode.Leave += (s, e) => ParseCompanyInput();
+            companyCode.KeyDown += (s, e) =>
+            {
+                if (e.KeyCode != Keys.Enter) return;
+                e.Handled = e.SuppressKeyPress = true;
+                if (ParseCompanyInput()) { companyName.Focus(); companyName.SelectionStart = companyName.TextLength; }
+            };
             export.Click += (s, e) => TryAction(ExportSql);
             exportExcel.Click += async (s, e) => await ExportExcelAsync();
             saveLog.Click += (s, e) => TryAction(SaveLog);
@@ -209,8 +216,17 @@ namespace FinanceMappingTool
             status.Text = "当前预览：" + previewType + "，" + rows.Count + " 条。请检查映射和下方日志后导出。";
             export.Enabled = exportExcel.Enabled = true;
         }
+        private bool ParseCompanyInput()
+        {
+            string code, name;
+            if (!CompanyExportOptions.TryParseCompanyText(companyCode.Text, out code, out name)) return false;
+            companyCode.Text = code;
+            companyName.Text = name;
+            return true;
+        }
         private void ExportSql()
         {
+            ParseCompanyInput();
             CommitPreview();
             var rows = preview.ToList();
             var company = new CompanyExportOptions(type.Text, companyCode.Text, companyName.Text, currency.Text, removeAccountLeadingZeros.Checked);

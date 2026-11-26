@@ -15,6 +15,13 @@ static class CompanyExportChecks
         try
         {
             var seed=new List<MappingRow>{new MappingRow{ExcelRow=2,FeeNo="0001",FeeName="国内名称",FeeNoOverseas="F001",FeeNameOverseas="Foreign",OverseasType="KDVoucher",Memo="",CustomerType="1",CreditDebitType=""}};
+            string parsedCode, parsedName;
+            Check(CompanyExportOptions.TryParseCompanyText("[090102]DEMO ANZ PTY LTD",out parsedCode,out parsedName) && parsedCode=="090102" && parsedName=="DEMO ANZ PTY LTD","bracketed company input preserves leading zero and complete long name");
+            var parsedCompany=new CompanyExportOptions("KDVoucher",parsedCode,parsedName,"AUD");parsedCompany.Validate();
+            Check(parsedCompany.CompanyCode=="090102" && parsedCompany.Memo=="[090102]DEMO ANZ PTY LTD" && parsedCompany.AccountTypes[0]=="90102@01","parsed company code stays textual while account option independently removes zeros");
+            Check(CompanyExportOptions.TryParseCompanyText("  DEMO [000123] ANZ 2026  ",out parsedCode,out parsedName) && parsedCode=="000123" && parsedName=="DEMO  ANZ 2026","company name retains text and digits outside bracketed code");
+            Check(CompanyExportOptions.TryParseCompanyText("[000000]中文公司 123",out parsedCode,out parsedName) && parsedCode=="000000" && parsedName=="中文公司 123","all-zero code and Unicode company name are preserved as text");
+            Check(new[]{"090102","[ABC]Demo","[090102Demo","[01][02]Demo","[０９０１０２]Demo",""}.All(value=>!CompanyExportOptions.TryParseCompanyText(value,out parsedCode,out parsedName)),"plain or malformed input is not automatically split");
             var company=new CompanyExportOptions(" KDVoucher "," 000123 ","演示公司 O'Brien"," VND ");company.Validate();
             Check(company.OverseasType=="KDVoucherVND" && company.AccountTypes.SequenceEqual(new[]{"123@01","123@02"}) && company.Memo=="[000123]演示公司 O'Brien","company code leading zero, suffix and memo composition");
             var rows=MappingEngine.ForType(seed,"KDVoucher",rule,company.Currency);
